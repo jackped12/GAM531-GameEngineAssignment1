@@ -1,138 +1,142 @@
-﻿// Constructor
-using OpenTK.Graphics.OpenGL;
-using OpenTK.Mathematics;
-using OpenTK.Windowing.Common;
+﻿using System;
+using System.Runtime.InteropServices;
 using OpenTK.Windowing.Desktop;
-namespace WindowEngine
+using OpenTK.Windowing.Common;
+using OpenTK.Graphics.OpenGL;
+
+namespace Windows_Engine
 {
     public class Game : GameWindow
     {
-        private int shaderProgramHandle; private VectorOperations vectorOps;
+        private float rotationAngle = 0f;
+        private int shaderProgram;
+        private int vao, vbo;
+        private int rotationUniform;
+
+        // Use DllImport instead of LibraryImport -> no unsafe code required
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AllocConsole();
+
         public Game()
-     : base(GameWindowSettings.Default, NativeWindowSettings.Default)
-        {
-            // Set window size to 1280x768
-            this.Size = new Vector2i(1280, 768);
+            : base(GameWindowSettings.Default, new NativeWindowSettings()
+            {
+                ClientSize = (800, 600),
+                Title = "Vector & Matrix Demo"
+            })
+        { }
 
-            // Center the window on the screen
-            this.CenterWindow(this.Size);
-
-            // Initialize VectorOperations
-            vectorOps = new VectorOperations();
-        }
-
-        // Called automatically whenever the window is resized
-        protected override void OnResize(ResizeEventArgs e)
-        {
-            // Update the OpenGL viewport to match the new window dimensions
-            GL.Viewport(0, 0, e.Width, e.Height);
-            base.OnResize(e);
-        }
-
-        // Called once when the game starts, ideal for loading resources
         protected override void OnLoad()
         {
             base.OnLoad();
 
-            // Set the background color (RGBA)
-            GL.ClearColor(new Color4(0.1f, 0.1f, 0.2f, 1f));
+            AllocConsole(); // Attach console
 
-            // Vertex shader: positions each vertex and passes color
-            string vertexShaderCode = @"
-            #version 330 core
-            layout(location = 0) in vec3 aPosition; // Vertex position input
-            layout(location = 1) in vec3 aColor;    // Vertex color input
-            out vec3 vColor;                       // Pass color to fragment shader
+            GL.ClearColor(0.2f, 0.2f, 0.3f, 1f);
 
-            void main()
-            {
-                gl_Position = vec4(aPosition, 1.0); // Convert vec3 to vec4 for output
-                vColor = aColor;
-            }
-        ";
+            string vertexShaderSrc = """
+                #version 330 core
+                layout(location = 0) in vec3 aPosition;
+                layout(location = 1) in vec3 aColor;
+                uniform mat4 rotationMatrix;
+                out vec3 vColor;
+                void main()
+                {
+                    gl_Position = rotationMatrix * vec4(aPosition, 1.0);
+                    vColor = aColor;
+                }
+                """;
 
-            // Fragment shader: uses vertex color
-            string fragmentShaderCode = @"
-            #version 330 core
-            in vec3 vColor;
-            out vec4 FragColor;
-
-            void main()
-            {
-                FragColor = vec4(vColor, 1.0); // Use color from vertex shader
-            }
-        ";
+            string fragmentShaderSrc = """
+                #version 330 core
+                in vec3 vColor;
+                out vec4 FragColor;
+                void main()
+                {
+                    FragColor = vec4(vColor, 1.0);
+                }
+                """;
 
             // Compile shaders
-            int vertexShaderHandle = GL.CreateShader(ShaderType.VertexShader);
-            GL.ShaderSource(vertexShaderHandle, vertexShaderCode);
-            GL.CompileShader(vertexShaderHandle);
-            CheckShaderCompile(vertexShaderHandle, "Vertex Shader");
+            int vShader = GL.CreateShader(ShaderType.VertexShader);
+            GL.ShaderSource(vShader, vertexShaderSrc);
+            GL.CompileShader(vShader);
 
-            int fragmentShaderHandle = GL.CreateShader(ShaderType.FragmentShader);
-            GL.ShaderSource(fragmentShaderHandle, fragmentShaderCode);
-            GL.CompileShader(fragmentShaderHandle);
-            CheckShaderCompile(fragmentShaderHandle, "Fragment Shader");
+            int fShader = GL.CreateShader(ShaderType.FragmentShader);
+            GL.ShaderSource(fShader, fragmentShaderSrc);
+            GL.CompileShader(fShader);
 
-            // Create shader program and link shaders
-            shaderProgramHandle = GL.CreateProgram();
-            GL.AttachShader(shaderProgramHandle, vertexShaderHandle);
-            GL.AttachShader(shaderProgramHandle, fragmentShaderHandle);
-            GL.LinkProgram(shaderProgramHandle);
+            // Link shader program
+            shaderProgram = GL.CreateProgram();
+            GL.AttachShader(shaderProgram, vShader);
+            GL.AttachShader(shaderProgram, fShader);
+            GL.LinkProgram(shaderProgram);
 
-            // Cleanup shaders after linking
-            GL.DetachShader(shaderProgramHandle, vertexShaderHandle);
-            GL.DetachShader(shaderProgramHandle, fragmentShaderHandle);
-            GL.DeleteShader(vertexShaderHandle);
-            GL.DeleteShader(fragmentShaderHandle);
+            GL.DeleteShader(vShader);
+            GL.DeleteShader(fShader);
 
-            // Initialize vector buffers
-            vectorOps.InitializeBuffers();
+            rotationUniform = GL.GetUniformLocation(shaderProgram, "rotationMatrix");
+
+            vao = GL.GenVertexArray();
+            vbo = GL.GenBuffer();
         }
 
-        // Called every frame to update game logic
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
-            // Handle input, animations, physics, AI, etc.
+            rotationAngle += (float)args.Time; // animate rotation
         }
 
-        // Called every frame to render graphics
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
 
-            // Clear the screen with background color
             GL.Clear(ClearBufferMask.ColorBufferBit);
 
-            // Draw the vectors
-            vectorOps.Render(shaderProgramHandle);
+            float[] vertexData =
+            {
+                0f,  0.5f, 0f, 1f, 0f, 0f, // top (red)
+               -0.5f,-0.5f, 0f, 0f, 1f, 0f, // left (green)
+                0.5f,-0.5f, 0f, 0f, 0f, 1f  // right (blue)
+            };
 
-            // Display the rendered frame
+            GL.BindVertexArray(vao);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
+            GL.BufferData(BufferTarget.ArrayBuffer, vertexData.Length * sizeof(float), vertexData, BufferUsageHint.DynamicDraw);
+
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), 0);
+            GL.EnableVertexAttribArray(0);
+
+            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), 3 * sizeof(float));
+            GL.EnableVertexAttribArray(1);
+
+            GL.UseProgram(shaderProgram);
+
+            // Combine scale + rotation using Multiply
+            var scaleMatrix = MatrixOperations.Scale(0.5f, 0.5f, 0.5f);
+            var rotationMatrix = MatrixOperations.RotationZ(rotationAngle);
+            var transformMatrix = MatrixOperations.Multiply(rotationMatrix, scaleMatrix);
+
+            GL.UniformMatrix4(rotationUniform, false, ref transformMatrix);
+
+            GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+
+            GL.BindVertexArray(0);
+
             SwapBuffers();
         }
 
-        // Called when the game is closing or resources need to be released
-        protected override void OnUnload()
+        protected override void OnResize(ResizeEventArgs e)
         {
-            // Cleanup vector operations
-            vectorOps.Cleanup();
-
-            GL.UseProgram(0);
-            GL.DeleteProgram(shaderProgramHandle);
-
-            base.OnUnload();
+            base.OnResize(e);
+            GL.Viewport(0, 0, e.Width, e.Height);
         }
 
-        // Helper function to check for shader compilation errors
-        private void CheckShaderCompile(int shaderHandle, string shaderName)
+        protected override void OnUnload()
         {
-            GL.GetShader(shaderHandle, ShaderParameter.CompileStatus, out int success);
-            if (success == 0)
-            {
-                string infoLog = GL.GetShaderInfoLog(shaderHandle);
-                Console.WriteLine($"Error compiling {shaderName}: {infoLog}");
-            }
+            base.OnUnload();
+            GL.DeleteBuffer(vbo);
+            GL.DeleteVertexArray(vao);
+            GL.DeleteProgram(shaderProgram);
         }
     }
 }
