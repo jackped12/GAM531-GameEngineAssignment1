@@ -12,8 +12,8 @@ This project demonstrates basic vector and matrix operations using C# with OpenT
 
 1. **Clone the Repository**:
    ```bash
-   git clone <repository-url>
-   cd <repository-directory>
+   git clone https://github.com/jackped12/GAM531-GameEngineAssignment1.git
+   cd GAM531-GameEngineAssignment1
    ```
 
 2. **Install Dependencies**:
