@@ -23,7 +23,7 @@ namespace Windows_Engine
         private static partial bool AllocConsole();
 
         public Game()
-            : base(GameWindowSettings.Default, new NativeWindowSettings { Size = (800, 600), Title = "3D Cube Demo" })
+            : base(GameWindowSettings.Default, new NativeWindowSettings { ClientSize = (800, 600), Title = "3D Cube Demo" })
         { }
 
         protected override void OnLoad()
