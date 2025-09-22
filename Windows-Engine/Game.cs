@@ -11,12 +11,14 @@ namespace Windows_Engine
 {
     public partial class Game : GameWindow
     {
+        private int gridVao, gridVbo;
         private float rotationAngle = 0f;
         private int shaderProgram;
         private int vao, vbo;
         private int mvpUniform;
-        private int texture;
         private Matrix4 projection;
+        // Added position vector for movement
+        private Vector3 cubePosition = Vector3.Zero;
 
         [LibraryImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -35,40 +37,37 @@ namespace Windows_Engine
             GL.Viewport(0, 0, Size.X, Size.Y);
             GL.ClearColor(0.2f, 0.2f, 0.3f, 1f);
             GL.Enable(EnableCap.DepthTest);
-            GL.CullFace(TriangleFace.Back);
-            GL.FrontFace(FrontFaceDirection.Ccw);
             GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Fill);
+
             string glVersion = GL.GetString(StringName.Version);
             Console.WriteLine($"OpenGL Version: {glVersion}");
+
             projection = Matrix4.CreatePerspectiveFieldOfView(
-                MathHelper.DegreesToRadians(60f),16f/9f,
+                MathHelper.DegreesToRadians(60f), (float)Size.X / Size.Y,
                 0.1f, 100f);
+
             string vertexShaderSrc = """
                 #version 330 core
                 layout(location = 0) in vec3 aPosition;
                 layout(location = 1) in vec3 aColor;
-                layout(location = 2) in vec2 aTexCoord;
                 uniform mat4 mvp;
                 out vec3 vColor;
-                out vec2 vTexCoord;
                 void main()
                 {
                     gl_Position = mvp * vec4(aPosition, 1.0);
                     vColor = aColor;
-                    vTexCoord = aTexCoord;
                 }
                 """;
             string fragmentShaderSrc = """
                 #version 330 core
                 in vec3 vColor;
-                in vec2 vTexCoord;
-                uniform sampler2D texture1;
                 out vec4 FragColor;
                 void main()
                 {
-                    FragColor = texture(texture1, vTexCoord) * vec4(vColor, 1.0);
+                    FragColor = vec4(vColor, 1.0);
                 }
                 """;
+
             int vShader = GL.CreateShader(ShaderType.VertexShader);
             GL.ShaderSource(vShader, vertexShaderSrc);
             GL.CompileShader(vShader);
@@ -78,6 +77,7 @@ namespace Windows_Engine
                 Console.WriteLine("Vertex shader compile error:");
                 Console.WriteLine(GL.GetShaderInfoLog(vShader));
             }
+
             int fShader = GL.CreateShader(ShaderType.FragmentShader);
             GL.ShaderSource(fShader, fragmentShaderSrc);
             GL.CompileShader(fShader);
@@ -87,6 +87,7 @@ namespace Windows_Engine
                 Console.WriteLine("Fragment shader compile error:");
                 Console.WriteLine(GL.GetShaderInfoLog(fShader));
             }
+
             shaderProgram = GL.CreateProgram();
             GL.AttachShader(shaderProgram, vShader);
             GL.AttachShader(shaderProgram, fShader);
@@ -99,89 +100,135 @@ namespace Windows_Engine
             }
             GL.DeleteShader(vShader);
             GL.DeleteShader(fShader);
+
             mvpUniform = GL.GetUniformLocation(shaderProgram, "mvp");
             if (mvpUniform == -1) Console.WriteLine("Warning: 'mvp' uniform not found.");
-            texture = GL.GenTexture();
-            GL.BindTexture(TextureTarget.Texture2D, texture);
-            byte[] texData = { 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0 };
-            GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, 2, 2, 0, PixelFormat.Rgb, PixelType.UnsignedByte, texData);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
             GL.UseProgram(shaderProgram);
-            int texUniform = GL.GetUniformLocation(shaderProgram, "texture1");
-            if (texUniform == -1) Console.WriteLine("Warning: 'texture1' uniform not found.");
-            GL.Uniform1(texUniform, 0);
+
             float[] vertexData = {
-                // Front face
-                -0.5f, -0.5f,  0.5f,  1f, 0f, 0f,  0f, 0f,
-                 0.5f, -0.5f,  0.5f,  1f, 0f, 0f,  1f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 0f, 0f,  1f, 1f,
-                -0.5f, -0.5f,  0.5f,  1f, 0f, 0f,  0f, 0f,
-                -0.5f,  0.5f,  0.5f,  1f, 0f, 0f,  0f, 1f,
-                 0.5f,  0.5f,  0.5f,  1f, 0f, 0f,  1f, 1f,
+                // Front face (red)
+                -0.5f, -0.5f,  0.5f,  1f, 0f, 0f,
+                 0.5f, -0.5f,  0.5f,  1f, 0f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 0f, 0f,
+                -0.5f, -0.5f,  0.5f,  1f, 0f, 0f,
+                -0.5f,  0.5f,  0.5f,  1f, 0f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 0f, 0f,
 
-                // Back face
-                -0.5f, -0.5f, -0.5f,  0f, 1f, 0f,  0f, 0f,
-                -0.5f,  0.5f, -0.5f,  0f, 1f, 0f,  0f, 1f,
-                 0.5f,  0.5f, -0.5f,  0f, 1f, 0f,  1f, 1f,
-                -0.5f, -0.5f, -0.5f,  0f, 1f, 0f,  0f, 0f,
-                 0.5f,  0.5f, -0.5f,  0f, 1f, 0f,  1f, 1f,
-                 0.5f, -0.5f, -0.5f,  0f, 1f, 0f,  1f, 0f,
+                // Back face (green)
+                -0.5f, -0.5f, -0.5f,  0f, 1f, 0f,
+                -0.5f,  0.5f, -0.5f,  0f, 1f, 0f,
+                 0.5f,  0.5f, -0.5f,  0f, 1f, 0f,
+                -0.5f, -0.5f, -0.5f,  0f, 1f, 0f,
+                 0.5f,  0.5f, -0.5f,  0f, 1f, 0f,
+                 0.5f, -0.5f, -0.5f,  0f, 1f, 0f,
 
-                // Left face
-                -0.5f, -0.5f, -0.5f,  0f, 0f, 1f,  0f, 0f,
-                -0.5f,  0.5f, -0.5f,  0f, 0f, 1f,  0f, 1f,
-                -0.5f,  0.5f,  0.5f,  0f, 0f, 1f,  1f, 1f,
-                -0.5f, -0.5f, -0.5f,  0f, 0f, 1f,  0f, 0f,
-                -0.5f,  0.5f,  0.5f,  0f, 0f, 1f,  1f, 1f,
-                -0.5f, -0.5f,  0.5f,  0f, 0f, 1f,  1f, 0f,
+                // Left face (blue)
+                -0.5f, -0.5f, -0.5f,  0f, 0f, 1f,
+                -0.5f,  0.5f, -0.5f,  0f, 0f, 1f,
+                -0.5f,  0.5f,  0.5f,  0f, 0f, 1f,
+                -0.5f, -0.5f, -0.5f,  0f, 0f, 1f,
+                -0.5f,  0.5f,  0.5f,  0f, 0f, 1f,
+                -0.5f, -0.5f,  0.5f,  0f, 0f, 1f,
 
-                // Right face
-                 0.5f, -0.5f, -0.5f,  1f, 1f, 0f,  0f, 0f,
-                 0.5f,  0.5f, -0.5f,  1f, 1f, 0f,  0f, 1f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f, 0f,  1f, 1f,
-                 0.5f, -0.5f, -0.5f,  1f, 1f, 0f,  0f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f, 0f,  1f, 1f,
-                 0.5f, -0.5f,  0.5f,  1f, 1f, 0f,  1f, 0f,
+                // Right face (yellow)
+                 0.5f, -0.5f, -0.5f,  1f, 1f, 0f,
+                 0.5f,  0.5f, -0.5f,  1f, 1f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 1f, 0f,
+                 0.5f, -0.5f, -0.5f,  1f, 1f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 1f, 0f,
+                 0.5f, -0.5f,  0.5f,  1f, 1f, 0f,
 
-                // Top face
-                -0.5f,  0.5f, -0.5f,  1f, 0f, 1f,  0f, 0f,
-                 0.5f,  0.5f, -0.5f,  1f, 0f, 1f,  1f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 0f, 1f,  1f, 1f,
-                -0.5f,  0.5f, -0.5f,  1f, 0f, 1f,  0f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 0f, 1f,  1f, 1f,
-                -0.5f,  0.5f,  0.5f,  1f, 0f, 1f,  0f, 1f,
+                // Top face (magenta)
+                -0.5f,  0.5f, -0.5f,  1f, 0f, 1f,
+                 0.5f,  0.5f, -0.5f,  1f, 0f, 1f,
+                 0.5f,  0.5f,  0.5f,  1f, 0f, 1f,
+                -0.5f,  0.5f, -0.5f,  1f, 0f, 1f,
+                 0.5f,  0.5f,  0.5f,  1f, 0f, 1f,
+                -0.5f,  0.5f,  0.5f,  1f, 0f, 1f,
 
-                // Bottom face
-                -0.5f, -0.5f, -0.5f,  0f, 1f, 1f,  0f, 0f,
-                 0.5f, -0.5f, -0.5f,  0f, 1f, 1f,  1f, 0f,
-                 0.5f, -0.5f,  0.5f,  0f, 1f, 1f,  1f, 1f,
-                -0.5f, -0.5f, -0.5f,  0f, 1f, 1f,  0f, 0f,
-                 0.5f, -0.5f,  0.5f,  0f, 1f, 1f,  1f, 1f,
-                -0.5f, -0.5f,  0.5f,  0f, 1f, 1f,  0f, 1f,
+                // Bottom face (cyan)
+                -0.5f, -0.5f, -0.5f,  0f, 1f, 1f,
+                 0.5f, -0.5f, -0.5f,  0f, 1f, 1f,
+                 0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
+                -0.5f, -0.5f, -0.5f,  0f, 1f, 1f,
+                 0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
+                -0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
             };
+
             vbo = GL.GenBuffer();
-            
             GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
             GL.BufferData(BufferTarget.ArrayBuffer, vertexData.Length * sizeof(float), vertexData, BufferUsageHint.StaticDraw);
-            
+
             vao = GL.GenVertexArray();
             GL.BindVertexArray(vao);
-            
+
             GL.EnableVertexAttribArray(0);
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 8 * sizeof(float), (IntPtr)0);
-            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 8 * sizeof(float), (IntPtr)(3 * sizeof(float)));
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), (IntPtr)0);
+
             GL.EnableVertexAttribArray(1);
-            GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, 8 * sizeof(float), (IntPtr)(6 * sizeof(float)));
-            GL.EnableVertexAttribArray(2);
+            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), (IntPtr)(3 * sizeof(float)));
+
             GL.BindVertexArray(0);
-            Console.WriteLine($"VAO: {vao}, VBO: {vbo}, ShaderProgram: {shaderProgram}, Texture: {texture}");
+            Console.WriteLine($"VAO: {vao}, VBO: {vbo}, ShaderProgram: {shaderProgram}");
+            // --- GRID AXIS SETUP START ---
+            float[] gridVertices = {
+        // X-axis (red)
+        -5.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+         5.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+
+        // Y-axis (green)
+         0.0f, -5.0f, 0.0f,  0.0f, 1.0f, 0.0f,
+         0.0f,  5.0f, 0.0f,  0.0f, 1.0f, 0.0f,
+
+        // Z-axis (blue)
+         0.0f, 0.0f, -5.0f,  0.0f, 0.0f, 1.0f,
+         0.0f, 0.0f,  5.0f,  0.0f, 0.0f, 1.0f,
+    };
+
+            gridVao = GL.GenVertexArray();
+            gridVbo = GL.GenBuffer();
+
+            GL.BindVertexArray(gridVao);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, gridVbo);
+            GL.BufferData(BufferTarget.ArrayBuffer, gridVertices.Length * sizeof(float), gridVertices, BufferUsageHint.StaticDraw);
+
+            // Position attribute
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), (IntPtr)0);
+            GL.EnableVertexAttribArray(0);
+
+            // Color attribute
+            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), (IntPtr)(3 * sizeof(float)));
+            GL.EnableVertexAttribArray(1);
+
+            GL.BindVertexArray(0); // Unbind VAO
+                                   // --- GRID AXIS SETUP END ---
         }
 
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
             rotationAngle += 0.01f;
+
+            // Added movement logic
+            float moveSpeed = 5.0f * (float)args.Time;
+
+            if (KeyboardState.IsKeyDown(Keys.W))
+            {
+                cubePosition.Z -= moveSpeed;
+            }
+            if (KeyboardState.IsKeyDown(Keys.S))
+            {
+                cubePosition.Z += moveSpeed;
+            }
+            if (KeyboardState.IsKeyDown(Keys.A))
+            {
+                cubePosition.X -= moveSpeed;
+            }
+            if (KeyboardState.IsKeyDown(Keys.D))
+            {
+                cubePosition.X += moveSpeed;
+            }
+
             if (KeyboardState.IsKeyDown(Keys.Escape))
             {
                 Close();
@@ -192,21 +239,31 @@ namespace Windows_Engine
         {
             base.OnRenderFrame(args);
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-          
+
             GL.UseProgram(shaderProgram);
-            GL.ActiveTexture(TextureUnit.Texture0);
-            GL.BindTexture(TextureTarget.Texture2D, texture);
-            var model = Matrix4.CreateRotationY(rotationAngle);
+
+            // Combine rotation and translation for the model matrix
+            var model = Matrix4.CreateRotationY(rotationAngle) * Matrix4.CreateTranslation(cubePosition);
+
             var view = Matrix4.LookAt(new Vector3(2.5f, 2.5f, 2.5f), Vector3.Zero, Vector3.UnitY);
             var mvp = model * view * projection;
-        
-            GL.UniformMatrix4(mvpUniform, false, ref mvp); 
+
+            GL.UniformMatrix4(mvpUniform, false, ref mvp);
             GL.BindVertexArray(vao);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
+            // --- Draw the Grid ---
+            // The grid is static, so its model matrix is the identity matrix.
+            var gridModel = Matrix4.Identity;
+            var gridMvp = gridModel * view * projection;
+            GL.UniformMatrix4(mvpUniform, false, ref gridMvp);
+            GL.BindVertexArray(gridVao);
+            GL.DrawArrays(PrimitiveType.Lines, 0, 6); // 6 vertices (2 per axis)
             GL.BindVertexArray(0);
+
             var err = GL.GetError();
             if (err != OpenTK.Graphics.OpenGL.ErrorCode.NoError)
                 Console.WriteLine($"GL Error: {err}");
+
             SwapBuffers();
         }
 
@@ -226,7 +283,6 @@ namespace Windows_Engine
             GL.DeleteBuffer(vbo);
             GL.DeleteVertexArray(vao);
             GL.DeleteProgram(shaderProgram);
-            GL.DeleteTexture(texture);
         }
     }
 }
