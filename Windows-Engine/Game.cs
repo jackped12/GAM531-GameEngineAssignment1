@@ -11,14 +11,11 @@ namespace Windows_Engine
 {
     public partial class Game : GameWindow
     {
-        private int gridVao, gridVbo;
-        private float rotationAngle = 0f;
+        private Quaternion cubeRotation = Quaternion.Identity;
         private int shaderProgram;
         private int vao, vbo;
         private int mvpUniform;
         private Matrix4 projection;
-        // Added position vector for movement
-        private Vector3 cubePosition = Vector3.Zero;
 
         [LibraryImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -152,7 +149,7 @@ namespace Windows_Engine
                  0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
                 -0.5f, -0.5f, -0.5f,  0f, 1f, 1f,
                  0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
-                -0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
+                -0.5f, -0.5f,  0f, 1f, 1f, 1f,
             };
 
             vbo = GL.GenBuffer();
@@ -170,63 +167,29 @@ namespace Windows_Engine
 
             GL.BindVertexArray(0);
             Console.WriteLine($"VAO: {vao}, VBO: {vbo}, ShaderProgram: {shaderProgram}");
-            // --- GRID AXIS SETUP START ---
-            float[] gridVertices = {
-        // X-axis (red)
-        -5.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
-         5.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
-
-        // Y-axis (green)
-         0.0f, -5.0f, 0.0f,  0.0f, 1.0f, 0.0f,
-         0.0f,  5.0f, 0.0f,  0.0f, 1.0f, 0.0f,
-
-        // Z-axis (blue)
-         0.0f, 0.0f, -5.0f,  0.0f, 0.0f, 1.0f,
-         0.0f, 0.0f,  5.0f,  0.0f, 0.0f, 1.0f,
-    };
-
-            gridVao = GL.GenVertexArray();
-            gridVbo = GL.GenBuffer();
-
-            GL.BindVertexArray(gridVao);
-            GL.BindBuffer(BufferTarget.ArrayBuffer, gridVbo);
-            GL.BufferData(BufferTarget.ArrayBuffer, gridVertices.Length * sizeof(float), gridVertices, BufferUsageHint.StaticDraw);
-
-            // Position attribute
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), (IntPtr)0);
-            GL.EnableVertexAttribArray(0);
-
-            // Color attribute
-            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), (IntPtr)(3 * sizeof(float)));
-            GL.EnableVertexAttribArray(1);
-
-            GL.BindVertexArray(0); // Unbind VAO
-                                   // --- GRID AXIS SETUP END ---
         }
 
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
-            rotationAngle += 0.01f;
 
-            // Added movement logic
-            float moveSpeed = 5.0f * (float)args.Time;
+            float rotationSpeed = 2.0f * (float)args.Time;
 
             if (KeyboardState.IsKeyDown(Keys.W))
             {
-                cubePosition.Z -= moveSpeed;
+                cubeRotation *= Quaternion.FromAxisAngle(Vector3.UnitX, rotationSpeed);
             }
             if (KeyboardState.IsKeyDown(Keys.S))
             {
-                cubePosition.Z += moveSpeed;
+                cubeRotation *= Quaternion.FromAxisAngle(Vector3.UnitX, -rotationSpeed);
             }
             if (KeyboardState.IsKeyDown(Keys.A))
             {
-                cubePosition.X -= moveSpeed;
+                cubeRotation *= Quaternion.FromAxisAngle(Vector3.UnitY, rotationSpeed);
             }
             if (KeyboardState.IsKeyDown(Keys.D))
             {
-                cubePosition.X += moveSpeed;
+                cubeRotation *= Quaternion.FromAxisAngle(Vector3.UnitY, -rotationSpeed);
             }
 
             if (KeyboardState.IsKeyDown(Keys.Escape))
@@ -242,8 +205,7 @@ namespace Windows_Engine
 
             GL.UseProgram(shaderProgram);
 
-            // Combine rotation and translation for the model matrix
-            var model = Matrix4.CreateRotationY(rotationAngle) * Matrix4.CreateTranslation(cubePosition);
+            var model = Matrix4.CreateFromQuaternion(cubeRotation);
 
             var view = Matrix4.LookAt(new Vector3(2.5f, 2.5f, 2.5f), Vector3.Zero, Vector3.UnitY);
             var mvp = model * view * projection;
@@ -251,13 +213,6 @@ namespace Windows_Engine
             GL.UniformMatrix4(mvpUniform, false, ref mvp);
             GL.BindVertexArray(vao);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
-            // --- Draw the Grid ---
-            // The grid is static, so its model matrix is the identity matrix.
-            var gridModel = Matrix4.Identity;
-            var gridMvp = gridModel * view * projection;
-            GL.UniformMatrix4(mvpUniform, false, ref gridMvp);
-            GL.BindVertexArray(gridVao);
-            GL.DrawArrays(PrimitiveType.Lines, 0, 6); // 6 vertices (2 per axis)
             GL.BindVertexArray(0);
 
             var err = GL.GetError();
