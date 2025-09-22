@@ -5,21 +5,18 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>Windows_Engine</RootNamespace>
     <Nullable>enable</Nullable>
-    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>AnyCPU;x86</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="OpenTK" Version="4.9.4" />
-    <PackageReference Include="OpenTK.Compute" Version="4.9.4" />
-    <PackageReference Include="OpenTK.Core" Version="4.9.4" />
-    <PackageReference Include="OpenTK.GLControl" Version="4.0.2" />
-    <PackageReference Include="OpenTK.Graphics" Version="4.9.4" />
-    <PackageReference Include="OpenTK.Input" Version="4.9.4" />
     <PackageReference Include="OpenTK.Mathematics" Version="4.9.4" />
-    <PackageReference Include="OpenTK.redist.glfw" Version="3.4.0.47" />
     <PackageReference Include="OpenTK.Windowing.Common" Version="4.9.4" />
     <PackageReference Include="OpenTK.Windowing.Desktop" Version="4.9.4" />
     <PackageReference Include="OpenTK.Windowing.GraphicsLibraryFramework" Version="4.9.4" />
+    <PackageReference Include="OpenTK.redist.glfw" Version="3.4.0.47" />
   </ItemGroup>
+
 </Project>
