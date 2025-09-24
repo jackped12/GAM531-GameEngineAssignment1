@@ -149,7 +149,7 @@ namespace Windows_Engine
                  0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
                 -0.5f, -0.5f, -0.5f,  0f, 1f, 1f,
                  0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
-                -0.5f, -0.5f,  0f, 1f, 1f, 1f,
+                -0.5f, -0.5f,  0.5f, 0f, 1f, 1f,
             };
 
             vbo = GL.GenBuffer();
