@@ -1,96 +1,48 @@
-# Vector & Matrix Demo
+# 3D Cube Demo
 
-This project demonstrates basic vector and matrix operations using C# with OpenTK, a library for OpenGL bindings. It includes a simple graphical application that renders a rotating, colored triangle and performs vector and matrix calculations displayed in the console.
+## Overview
+This project is a simple 3D cube rendering application built using C# and the OpenTK library. It displays a colored, rotating cube that can be controlled using keyboard inputs.
 
-## Prerequisites
+## Library Used
+- **OpenTK**: This project uses OpenTK, a C# wrapper for OpenGL, to handle graphics rendering and window management. OpenTK was chosen for its cross-platform support and ease of integration with .NET for rendering 3D graphics.
 
-- **.NET SDK**: Version 6.0 or later.
-- **OpenTK**: Install the `OpenTK` NuGet package (version compatible with .NET 6.0+).
-- **Operating System**: Windows (due to console allocation using `kernel32.dll`).
+## Cube Rendering Explanation
+The cube is rendered using OpenGL through the OpenTK library. Here's a brief overview of the rendering process:
+1. **Setup**:
+   - A window is created using OpenTK's `GameWindow` with a resolution of 800x600.
+   - OpenGL is initialized with depth testing enabled and a perspective projection matrix for 3D rendering.
+   - Vertex and fragment shaders are compiled and linked into a shader program to handle cube rendering.
+   - Vertex data (positions and colors) for the cube's six faces is defined and stored in a Vertex Buffer Object (VBO) and Vertex Array Object (VAO).
 
-## Setup
+2. **Rendering**:
+   - The cube is rendered as a set of triangles (36 vertices, 6 per face).
+   - A Model-View-Projection (MVP) matrix is computed, combining:
+     - **Model**: A rotation matrix derived from a quaternion updated based on user input.
+     - **View**: A camera positioned at (2.5, 2.5, 2.5) looking at the origin.
+     - **Projection**: A perspective projection with a 60-degree field of view.
+   - The MVP matrix is passed to the vertex shader to transform the cube's vertices.
+   - Each face of the cube is assigned a distinct color (red, green, blue, yellow, magenta, cyan) via the vertex data.
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/jackped12/GAM531-GameEngineAssignment1.git
-   cd GAM531-GameEngineAssignment1
-   ```
+3. **Interactivity**:
+   - The cube's rotation is controlled using quaternions, updated in the `OnUpdateFrame` method based on keyboard input (W/S for X-axis rotation, A/D for Y-axis rotation).
+   - The `OnRenderFrame` method clears the screen, applies the MVP matrix, and draws the cube using `GL.DrawArrays`.
 
-2. **Install Dependencies**:
-   Ensure the `OpenTK` package is installed. Run the following command in the project directory:
-   ```bash
-   dotnet add package OpenTK
-   ```
+4. **Cleanup**:
+   - Resources (VBO, VAO, shader program) are properly disposed of in the `OnUnload` method to prevent memory leaks.
 
-3. **Build the Project**:
-   ```bash
-   dotnet build
-   ```
+## Controls
+- **W**: Rotate cube up (around X-axis).
+- **S**: Rotate cube down (around X-axis).
+- **A**: Rotate cube left (around Y-axis).
+- **D**: Rotate cube right (around Y-axis).
+- **Escape**: Close the application.
 
-4. **Run the Application**:
-   ```bash
-   dotnet run
-   ```
+## Requirements
+- .NET Framework or .NET Core (compatible with OpenTK).
+- OpenTK library (available via NuGet: `Install-Package OpenTK`).
 
-## Project Structure
-
-- **MatrixOperations.cs**: Contains methods for matrix operations like identity, scaling, rotation, and multiplication using OpenTK's `Matrix4`.
-- **VectorOperations.cs**: Defines static vector operations (addition, subtraction, dot product, and cross product) using OpenTK's `Vector3`.
-- **Game.cs**: Implements a `GameWindow` using OpenTK to render a rotating triangle with vertex and fragment shaders.
-- **Program.cs**: Entry point that launches the game window and demonstrates vector and matrix operations in the console.
-
-## Features
-
-- **Graphical Output**: Displays a rotating, colored triangle scaled to 0.5x using OpenGL.
-- **Console Output**: Shows results of vector operations (addition, subtraction, dot product, cross product) and matrix operations (identity, scale, rotation, and combined transformation).
-- **Shader Usage**: Uses GLSL shaders for rendering the triangle with dynamic rotation.
-
-## Usage
-
-- Run the application to open a window displaying a rotating triangle.
-- A console window will also appear, showing:
-  - Vector operations results for predefined vectors `A(1,2,3)` and `B(4,5,6)`.
-  - Matrix operations results, including identity matrix, scaling matrix, rotation matrix, and their combination.
-
-## Example Output
-
-### Console Output
-```
-=== Vector Operations ===
-A + B = (5, 7, 9)
-A - B = (-3, -3, -3)
-Dot(A, B) = 32
-Cross(A, B) = (-3, 6, -3)
-
-=== Matrix Operations ===
-Identity:
-[1, 0, 0, 0]
-[0, 1, 0, 0]
-[0, 0, 1, 0]
-[0, 0, 0, 1]
-Scale (2,2,2):
-[2, 0, 0, 0]
-[0, 2, 0, 0]
-[0, 0, 2, 0]
-[0, 0, 0, 1]
-Rotation Z (90°):
-[0, -1, 0, 0]
-[1, 0, 0, 0]
-[0, 0, 1, 0]
-[0, 0, 0, 1]
-Combined Scale + Rotation:
-[...]
-```
-
-### Graphical Output
-- A window titled "Vector & Matrix Demo" (800x600) showing a triangle with red, green, and blue vertices, rotating around the Z-axis.
-
-## Notes
-
-- The rotation angle in the graphical demo increments based on frame time, creating a smooth animation.
-- The project uses `DllImport` for console allocation, which is Windows-specific. For cross-platform support, consider removing or replacing the console allocation logic.
-- Ensure OpenGL drivers are up-to-date for smooth rendering.
-
-## License
-
-This project is licensed under the MIT License.
+## How to Run
+1. Clone the repository.
+2. Install OpenTK via NuGet.
+3. Build and run the solution in a .NET-compatible IDE (e.g., Visual Studio).
+4. Use the keyboard controls to interact with the rotating cube.
