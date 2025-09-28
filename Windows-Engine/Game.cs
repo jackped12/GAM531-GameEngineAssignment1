@@ -2,10 +2,13 @@
 using System.Runtime.InteropServices;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.Common;
-using OpenTK.Graphics.OpenGL;
+using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.GraphicsLibraryFramework;
-using ErrorCode = OpenTK.Graphics.OpenGL.ErrorCode;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
+using ErrorCode = OpenTK.Graphics.OpenGL4.ErrorCode;
 
 namespace Windows_Engine
 {
@@ -15,6 +18,8 @@ namespace Windows_Engine
         private int shaderProgram;
         private int vao, vbo;
         private int mvpUniform;
+        private int texture;
+        private int texSamplerUniform;
         private Matrix4 projection;
 
         [LibraryImport("kernel32.dll", SetLastError = true)]
@@ -22,51 +27,45 @@ namespace Windows_Engine
         private static partial bool AllocConsole();
 
         public Game()
-            : base(GameWindowSettings.Default, new NativeWindowSettings { ClientSize = (800, 600), Title = "3D Cube Demo" })
+            : base(GameWindowSettings.Default, new NativeWindowSettings { ClientSize = new Vector2i(800, 600), Title = "Textured Cube" })
         { }
 
         protected override void OnLoad()
         {
-            GL.Enable(EnableCap.DepthTest);
             base.OnLoad();
             AllocConsole();
             VSync = VSyncMode.On;
             GL.Viewport(0, 0, Size.X, Size.Y);
             GL.ClearColor(0.2f, 0.2f, 0.3f, 1f);
             GL.Enable(EnableCap.DepthTest);
-            GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Fill);
+            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
 
-            string glVersion = GL.GetString(StringName.Version);
-            Console.WriteLine($"OpenGL Version: {glVersion}");
-
-            projection = Matrix4.CreatePerspectiveFieldOfView(
-                MathHelper.DegreesToRadians(60f), (float)Size.X / Size.Y,
-                0.1f, 100f);
-
-            string vertexShaderSrc = """
+            string vertexShaderSource = """
                 #version 330 core
                 layout(location = 0) in vec3 aPosition;
-                layout(location = 1) in vec3 aColor;
+                layout(location = 1) in vec2 aTexCoord;
                 uniform mat4 mvp;
-                out vec3 vColor;
+                out vec2 vTexCoord;
                 void main()
                 {
                     gl_Position = mvp * vec4(aPosition, 1.0);
-                    vColor = aColor;
+                    vTexCoord = aTexCoord;
                 }
                 """;
-            string fragmentShaderSrc = """
+
+            string fragmentShaderSource = """
                 #version 330 core
-                in vec3 vColor;
+                in vec2 vTexCoord;
                 out vec4 FragColor;
+                uniform sampler2D tex;
                 void main()
                 {
-                    FragColor = vec4(vColor, 1.0);
+                    FragColor = texture(tex, vTexCoord);
                 }
                 """;
 
             int vShader = GL.CreateShader(ShaderType.VertexShader);
-            GL.ShaderSource(vShader, vertexShaderSrc);
+            GL.ShaderSource(vShader, vertexShaderSource);
             GL.CompileShader(vShader);
             GL.GetShader(vShader, ShaderParameter.CompileStatus, out int vStatus);
             if (vStatus != (int)All.True)
@@ -76,7 +75,7 @@ namespace Windows_Engine
             }
 
             int fShader = GL.CreateShader(ShaderType.FragmentShader);
-            GL.ShaderSource(fShader, fragmentShaderSrc);
+            GL.ShaderSource(fShader, fragmentShaderSource);
             GL.CompileShader(fShader);
             GL.GetShader(fShader, ShaderParameter.CompileStatus, out int fStatus);
             if (fStatus != (int)All.True)
@@ -89,84 +88,106 @@ namespace Windows_Engine
             GL.AttachShader(shaderProgram, vShader);
             GL.AttachShader(shaderProgram, fShader);
             GL.LinkProgram(shaderProgram);
+
             GL.GetProgram(shaderProgram, GetProgramParameterName.LinkStatus, out int linkStatus);
             if (linkStatus != (int)All.True)
             {
                 Console.WriteLine("Program link error:");
                 Console.WriteLine(GL.GetProgramInfoLog(shaderProgram));
             }
+
             GL.DeleteShader(vShader);
             GL.DeleteShader(fShader);
 
             mvpUniform = GL.GetUniformLocation(shaderProgram, "mvp");
-            if (mvpUniform == -1) Console.WriteLine("Warning: 'mvp' uniform not found.");
+            texSamplerUniform = GL.GetUniformLocation(shaderProgram, "tex");
+
             GL.UseProgram(shaderProgram);
+            GL.Uniform1(texSamplerUniform, 0); // Texture unit 0
 
-            float[] vertexData = {
-                // Front face (red)
-                -0.5f, -0.5f,  0.5f,  1f, 0f, 0f,
-                 0.5f, -0.5f,  0.5f,  1f, 0f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 0f, 0f,
-                -0.5f, -0.5f,  0.5f,  1f, 0f, 0f,
-                -0.5f,  0.5f,  0.5f,  1f, 0f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 0f, 0f,
+            // Vertex data: position (x,y,z) + tex coords (u,v)
+            float[] vertices = {
+                // Front face
+                -0.5f, -0.5f,  0.5f,  0f, 0f,
+                 0.5f, -0.5f,  0.5f,  1f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 1f,
+                -0.5f, -0.5f,  0.5f,  0f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 1f,
+                -0.5f,  0.5f,  0.5f,  0f, 1f,
 
-                // Back face (green)
-                -0.5f, -0.5f, -0.5f,  0f, 1f, 0f,
-                -0.5f,  0.5f, -0.5f,  0f, 1f, 0f,
-                 0.5f,  0.5f, -0.5f,  0f, 1f, 0f,
-                -0.5f, -0.5f, -0.5f,  0f, 1f, 0f,
-                 0.5f,  0.5f, -0.5f,  0f, 1f, 0f,
-                 0.5f, -0.5f, -0.5f,  0f, 1f, 0f,
+                // Back face
+                -0.5f, -0.5f, -0.5f,  1f, 0f,
+                -0.5f,  0.5f, -0.5f,  1f, 1f,
+                 0.5f,  0.5f, -0.5f,  0f, 1f,
+                -0.5f, -0.5f, -0.5f,  1f, 0f,
+                 0.5f,  0.5f, -0.5f,  0f, 1f,
+                 0.5f, -0.5f, -0.5f,  0f, 0f,
 
-                // Left face (blue)
-                -0.5f, -0.5f, -0.5f,  0f, 0f, 1f,
-                -0.5f,  0.5f, -0.5f,  0f, 0f, 1f,
-                -0.5f,  0.5f,  0.5f,  0f, 0f, 1f,
-                -0.5f, -0.5f, -0.5f,  0f, 0f, 1f,
-                -0.5f,  0.5f,  0.5f,  0f, 0f, 1f,
-                -0.5f, -0.5f,  0.5f,  0f, 0f, 1f,
+                // Left face
+                -0.5f, -0.5f, -0.5f,  0f, 0f,
+                -0.5f,  0.5f, -0.5f,  1f, 0f,
+                -0.5f,  0.5f,  0.5f,  1f, 1f,
+                -0.5f, -0.5f, -0.5f,  0f, 0f,
+                -0.5f,  0.5f,  0.5f,  1f, 1f,
+                -0.5f, -0.5f,  0.5f,  0f, 1f,
 
-                // Right face (yellow)
-                 0.5f, -0.5f, -0.5f,  1f, 1f, 0f,
-                 0.5f,  0.5f, -0.5f,  1f, 1f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f, 0f,
-                 0.5f, -0.5f, -0.5f,  1f, 1f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f, 0f,
-                 0.5f, -0.5f,  0.5f,  1f, 1f, 0f,
+                // Right face
+                 0.5f, -0.5f, -0.5f,  0f, 0f,
+                 0.5f,  0.5f, -0.5f,  1f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 1f,
+                 0.5f, -0.5f, -0.5f,  0f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 1f,
+                 0.5f, -0.5f,  0.5f,  0f, 1f,
 
-                // Top face (magenta)
-                -0.5f,  0.5f, -0.5f,  1f, 0f, 1f,
-                 0.5f,  0.5f, -0.5f,  1f, 0f, 1f,
-                 0.5f,  0.5f,  0.5f,  1f, 0f, 1f,
-                -0.5f,  0.5f, -0.5f,  1f, 0f, 1f,
-                 0.5f,  0.5f,  0.5f,  1f, 0f, 1f,
-                -0.5f,  0.5f,  0.5f,  1f, 0f, 1f,
+                // Top face
+                -0.5f,  0.5f, -0.5f,  0f, 0f,
+                 0.5f,  0.5f, -0.5f,  1f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 1f,
+                -0.5f,  0.5f, -0.5f,  0f, 0f,
+                 0.5f,  0.5f,  0.5f,  1f, 1f,
+                -0.5f,  0.5f,  0.5f,  0f, 1f,
 
-                // Bottom face (cyan)
-                -0.5f, -0.5f, -0.5f,  0f, 1f, 1f,
-                 0.5f, -0.5f, -0.5f,  0f, 1f, 1f,
-                 0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
-                -0.5f, -0.5f, -0.5f,  0f, 1f, 1f,
-                 0.5f, -0.5f,  0.5f,  0f, 1f, 1f,
-                -0.5f, -0.5f,  0.5f, 0f, 1f, 1f,
+                // Bottom face
+                -0.5f, -0.5f, -0.5f,  0f, 0f,
+                 0.5f, -0.5f, -0.5f,  1f, 0f,
+                 0.5f, -0.5f,  0.5f,  1f, 1f,
+                -0.5f, -0.5f, -0.5f,  0f, 0f,
+                 0.5f, -0.5f,  0.5f,  1f, 1f,
+                -0.5f, -0.5f,  0.5f,  0f, 1f,
             };
 
             vbo = GL.GenBuffer();
-            GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
-            GL.BufferData(BufferTarget.ArrayBuffer, vertexData.Length * sizeof(float), vertexData, BufferUsageHint.StaticDraw);
-
             vao = GL.GenVertexArray();
+
             GL.BindVertexArray(vao);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
+            GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
 
             GL.EnableVertexAttribArray(0);
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), (IntPtr)0);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 5 * sizeof(float), 0);
 
             GL.EnableVertexAttribArray(1);
-            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), (IntPtr)(3 * sizeof(float)));
+            GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 5 * sizeof(float), (IntPtr)(3 * sizeof(float)));
 
             GL.BindVertexArray(0);
-            Console.WriteLine($"VAO: {vao}, VBO: {vbo}, ShaderProgram: {shaderProgram}");
+
+            // Load texture from file or fallback gradient
+            try
+            {
+                texture = TextureLoader.LoadTexture("Assets/texture.jpg");
+                Console.WriteLine("Texture loaded successfully.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Texture loading failed: {ex.Message}");
+                texture = TextureLoader.CreateGradientTexture(256, 256);
+                Console.WriteLine("Fallback gradient texture created.");
+            }
+
+            projection = Matrix4.CreatePerspectiveFieldOfView(
+                MathHelper.DegreesToRadians(60f),
+                (float)Size.X / Size.Y,
+                0.1f, 100f);
         }
 
         protected override void OnUpdateFrame(FrameEventArgs args)
@@ -201,33 +222,39 @@ namespace Windows_Engine
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
+
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
             GL.UseProgram(shaderProgram);
 
             var model = Matrix4.CreateFromQuaternion(cubeRotation);
-
             var view = Matrix4.LookAt(new Vector3(2.5f, 2.5f, 2.5f), Vector3.Zero, Vector3.UnitY);
             var mvp = model * view * projection;
 
             GL.UniformMatrix4(mvpUniform, false, ref mvp);
+
+            GL.ActiveTexture(TextureUnit.Texture0);
+            GL.BindTexture(TextureTarget.Texture2D, texture);
+
             GL.BindVertexArray(vao);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
             GL.BindVertexArray(0);
 
-            var err = GL.GetError();
-            if (err != OpenTK.Graphics.OpenGL.ErrorCode.NoError)
-                Console.WriteLine($"GL Error: {err}");
+            var error = GL.GetError();
+            if (error != ErrorCode.NoError)
+            {
+                Console.WriteLine($"OpenGL Error: {error}");
+            }
 
             SwapBuffers();
         }
 
-        protected override void OnResize(ResizeEventArgs e)
+        protected override void OnResize(OpenTK.Windowing.Common.ResizeEventArgs e)
         {
             base.OnResize(e);
             GL.Viewport(0, 0, e.Width, e.Height);
             projection = Matrix4.CreatePerspectiveFieldOfView(
-                MathF.PI / 4f,
+                MathHelper.DegreesToRadians(60f),
                 (float)e.Width / e.Height,
                 0.1f, 100f);
         }
@@ -238,6 +265,7 @@ namespace Windows_Engine
             GL.DeleteBuffer(vbo);
             GL.DeleteVertexArray(vao);
             GL.DeleteProgram(shaderProgram);
+            GL.DeleteTexture(texture);
         }
     }
 }

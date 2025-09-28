@@ -11,14 +11,14 @@ namespace Windows_Engine
                 game.Run(); // Launch OpenTK game window
             }
 
-            // Demo vector operations
+            // Demo vector operations (optional)
             Console.WriteLine("\n=== Vector Operations ===");
             Console.WriteLine($"A + B = {VectorOperations.Add}");
             Console.WriteLine($"A - B = {VectorOperations.Subtract}");
             Console.WriteLine($"Dot(A, B) = {VectorOperations.Dot}");
             Console.WriteLine($"Cross(A, B) = {VectorOperations.Cross}");
 
-            // Demo matrix operations
+            // Demo matrix operations (optional)
             Console.WriteLine("\n=== Matrix Operations ===");
             var identity = MatrixOperations.Identity();
             var scale = MatrixOperations.Scale(2, 2, 2);
