@@ -14,7 +14,11 @@ namespace Windows_Engine
 {
     public partial class Game : GameWindow
     {
-        private Quaternion cubeRotation = Quaternion.Identity;
+        private Matrix4 rotation = MatrixOperations.Identity();
+        private Vector3 position = Vector3.Zero;
+        private float scaleFactor = 1.0f;
+        private double totalTime = 0.0;
+        private bool hasTranslated = false; // Flag to stop after one translation
         private int shaderProgram;
         private int vao, vbo;
         private int mvpUniform;
@@ -38,8 +42,6 @@ namespace Windows_Engine
             GL.Viewport(0, 0, Size.X, Size.Y);
             GL.ClearColor(0.2f, 0.2f, 0.3f, 1f);
             GL.Enable(EnableCap.DepthTest);
-            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
-
             string vertexShaderSource = """
                 #version 330 core
                 layout(location = 0) in vec3 aPosition;
@@ -194,23 +196,117 @@ namespace Windows_Engine
         {
             base.OnUpdateFrame(args);
 
-            float rotationSpeed = 2.0f * (float)args.Time;
+            totalTime += args.Time;
+            float deltaTime = (float)args.Time;
+            float rotSpeed = 2.0f;
+            float moveSpeed = 1.0f;
+            float scaleSpeed = 0.5f;
 
+            bool rotInput = false;
+            bool moveInput = false;
+            bool scaleInput = false;
+
+            // Rotation controls (user)
             if (KeyboardState.IsKeyDown(Keys.W))
             {
-                cubeRotation *= Quaternion.FromAxisAngle(Vector3.UnitX, rotationSpeed);
+                var rot = MatrixOperations.RotationX(rotSpeed * deltaTime);
+                rotation = MatrixOperations.Multiply(rotation, rot);
+                rotInput = true;
             }
             if (KeyboardState.IsKeyDown(Keys.S))
             {
-                cubeRotation *= Quaternion.FromAxisAngle(Vector3.UnitX, -rotationSpeed);
+                var rot = MatrixOperations.RotationX(-rotSpeed * deltaTime);
+                rotation = MatrixOperations.Multiply(rotation, rot);
+                rotInput = true;
             }
             if (KeyboardState.IsKeyDown(Keys.A))
             {
-                cubeRotation *= Quaternion.FromAxisAngle(Vector3.UnitY, rotationSpeed);
+                var rot = MatrixOperations.RotationY(rotSpeed * deltaTime);
+                rotation = MatrixOperations.Multiply(rotation, rot);
+                rotInput = true;
             }
             if (KeyboardState.IsKeyDown(Keys.D))
             {
-                cubeRotation *= Quaternion.FromAxisAngle(Vector3.UnitY, -rotationSpeed);
+                var rot = MatrixOperations.RotationY(-rotSpeed * deltaTime);
+                rotation = MatrixOperations.Multiply(rotation, rot);
+                rotInput = true;
+            }
+
+            // Translation controls (user, using vector operations)
+            if (KeyboardState.IsKeyDown(Keys.Up))
+            {
+                position += VectorOperations.Add.Normalized() * moveSpeed * deltaTime;
+                moveInput = true;
+            }
+            if (KeyboardState.IsKeyDown(Keys.Down))
+            {
+                position -= VectorOperations.Add.Normalized() * moveSpeed * deltaTime;
+                moveInput = true;
+            }
+            if (KeyboardState.IsKeyDown(Keys.Left))
+            {
+                position += VectorOperations.Cross.Normalized() * moveSpeed * deltaTime;
+                moveInput = true;
+            }
+            if (KeyboardState.IsKeyDown(Keys.Right))
+            {
+                position -= VectorOperations.Cross.Normalized() * moveSpeed * deltaTime;
+                moveInput = true;
+            }
+
+            // Scale controls (user)
+            if (KeyboardState.IsKeyDown(Keys.Q))
+            {
+                scaleFactor += scaleSpeed * deltaTime;
+                scaleInput = true;
+            }
+            if (KeyboardState.IsKeyDown(Keys.E))
+            {
+                scaleFactor -= scaleSpeed * deltaTime;
+                scaleInput = true;
+            }
+            scaleFactor = Math.Max(0.1f, scaleFactor);
+
+            // Auto animation if no user input
+            if (!rotInput)
+            {
+                // Auto rotate around Y axis using MatrixOperations
+                var autoRot = MatrixOperations.RotationY(0.5f * deltaTime);
+                rotation = MatrixOperations.Multiply(rotation, autoRot);
+            }
+            if (!moveInput)
+            {
+                // Perform one-time translation and stop
+                if (!hasTranslated)
+                {
+                    Vector3 direction = VectorOperations.Subtract;
+                    float translationAmount = 0.05f;
+                    Vector3 delta = direction * translationAmount;
+                    Vector3 oldPosition = position;
+                    position += delta;
+
+                    // Log the math involved
+                    Console.WriteLine("\n=== Translation Math Log ===");
+                    Console.WriteLine($"Vector A: {VectorOperations.A}");
+                    Console.WriteLine($"Vector B: {VectorOperations.B}");
+                    Console.WriteLine($"Subtract Vector (A - B): {direction}");
+                    Console.WriteLine($"Dot Product (A · B): {VectorOperations.Dot}");
+                    Console.WriteLine($"Cross Product (A × B): {VectorOperations.Cross}");
+                    Console.WriteLine($"Add Vector (A + B): {VectorOperations.Add}");
+                    Console.WriteLine($"Translation Amount: {translationAmount}");
+                    Console.WriteLine($"Delta Translation: {delta}");
+                    Console.WriteLine($"Initial Position: {oldPosition}");
+                    Console.WriteLine($"New Position: {position}");
+                    Console.WriteLine($"Translation Matrix:\n{MatrixOperations.Translate(position.X, position.Y, position.Z)}");
+                    Console.WriteLine("=== End Log ===");
+
+                    hasTranslated = true;
+                }
+            }
+            if (!scaleInput)
+            {
+                // Auto oscillate scale
+                scaleFactor = 1.0f + 0.2f * MathF.Sin((float)totalTime);
             }
 
             if (KeyboardState.IsKeyDown(Keys.Escape))
@@ -227,9 +323,13 @@ namespace Windows_Engine
 
             GL.UseProgram(shaderProgram);
 
-            var model = Matrix4.CreateFromQuaternion(cubeRotation);
+            // Build model matrix: translate * rotation * scale
+            var scaleMat = MatrixOperations.Scale(scaleFactor, scaleFactor, scaleFactor);
+            var transMat = MatrixOperations.Translate(position.X, position.Y, position.Z);
+            var model = MatrixOperations.Multiply(transMat, MatrixOperations.Multiply(rotation, scaleMat));
+
             var view = Matrix4.LookAt(new Vector3(2.5f, 2.5f, 2.5f), Vector3.Zero, Vector3.UnitY);
-            var mvp = model * view * projection;
+            var mvp = MatrixOperations.Multiply(model, MatrixOperations.Multiply(view, projection));
 
             GL.UniformMatrix4(mvpUniform, false, ref mvp);
 

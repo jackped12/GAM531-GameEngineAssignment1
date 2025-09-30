@@ -18,6 +18,9 @@ namespace Windows_Engine
         public static Matrix4 RotationZ(float radians) =>
             Matrix4.CreateRotationZ(radians);
 
+        public static Matrix4 Translate(float tx, float ty, float tz) =>
+            Matrix4.CreateTranslation(tx, ty, tz);
+
         public static Matrix4 Multiply(Matrix4 a, Matrix4 b) => a * b;
     }
 }
