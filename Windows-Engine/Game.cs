@@ -267,13 +267,10 @@ namespace Windows_Engine
             }
             scaleFactor = Math.Max(0.1f, scaleFactor);
 
-            // Auto animation if no user input
-            if (!rotInput)
-            {
-                // Auto rotate around Y axis using MatrixOperations
-                var autoRot = MatrixOperations.RotationY(0.5f * deltaTime);
-                rotation = MatrixOperations.Multiply(rotation, autoRot);
-            }
+            // Continuous auto rotation around Y axis (always applied)
+            var autoRot = MatrixOperations.RotationY(0.5f * deltaTime);
+            rotation = MatrixOperations.Multiply(rotation, autoRot);
+
             if (!moveInput)
             {
                 // Perform one-time translation and stop
