@@ -1,4 +1,5 @@
 ﻿// Game.cs
+
 using System;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.Common;
@@ -11,7 +12,7 @@ namespace Windows_Engine
     public class Game : GameWindow
     {
         // Transforms
-        private Matrix4 rotation = MatrixOperations.Identity;   // property, not a method
+        private Matrix4 rotation = MatrixOperations.Identity;
         private Vector3 position = Vector3.Zero;
         private float scaleFactor = 1.0f;
 
@@ -39,83 +40,68 @@ namespace Windows_Engine
         private Matrix4 projection;
 
         public Game()
-            : base(GameWindowSettings.Default, new NativeWindowSettings
-            {
-                ClientSize = new Vector2i(800, 600),
-                Title = "Windows_Engine - Phong Lighting"
-            })
+        : base(GameWindowSettings.Default, new NativeWindowSettings
+        {
+            ClientSize = new Vector2i(800, 600),
+            Title = "Windows_Engine - Phong Lighting"
+        })
         { }
 
         protected override void OnLoad()
         {
             base.OnLoad();
-
             GL.Viewport(0, 0, Size.X, Size.Y);
             GL.ClearColor(0.1f, 0.12f, 0.15f, 1f);
             GL.Enable(EnableCap.DepthTest);
             GL.Enable(EnableCap.CullFace);
             GL.CullFace(CullFaceMode.Back);
 
-            // Shaders
+            // Shaders (could load from external files)
             string vertexSrc = @"
 #version 330 core
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec3 aNormal;
-
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProj;
-
 out vec3 vFragPos;
 out vec3 vNormal;
-
 void main()
 {
     vec4 worldPos = uModel * vec4(aPosition, 1.0);
     vFragPos = worldPos.xyz;
-
     // Transform normals by inverse-transpose of model
     mat3 normalMat = mat3(transpose(inverse(uModel)));
     vNormal = normalize(normalMat * aNormal);
-
     gl_Position = uProj * uView * worldPos;
 }";
-
             string fragmentSrc = @"
 #version 330 core
 in vec3 vFragPos;
 in vec3 vNormal;
-
 out vec4 FragColor;
-
 uniform vec3 uViewPos;
-
 uniform vec3 uLightPos;
 uniform vec3 uLightColor;
 uniform float uLightIntensity;
-
 uniform vec3 uMatAmbient;
 uniform vec3 uMatDiffuse;
 uniform vec3 uMatSpecular;
 uniform float uMatShininess;
-
 void main()
 {
     // Ambient
     vec3 ambient = uMatAmbient * uLightColor * uLightIntensity;
-
     // Diffuse
     vec3 N = normalize(vNormal);
     vec3 L = normalize(uLightPos - vFragPos);
     float diff = max(dot(N, L), 0.0);
     vec3 diffuse = uMatDiffuse * diff * uLightColor * uLightIntensity;
-
     // Specular (Blinn-Phong)
     vec3 V = normalize(uViewPos - vFragPos);
     vec3 H = normalize(L + V);
     float spec = pow(max(dot(N, H), 0.0), uMatShininess);
     vec3 specular = uMatSpecular * spec * uLightColor * uLightIntensity;
-
     FragColor = vec4(ambient + diffuse + specular, 1.0);
 }";
 
@@ -160,39 +146,36 @@ void main()
             float s = 0.5f;
             float[] vertices =
             {
-                // pos              // normal
+                // Front face (+Z)
                 -s,-s, s, 0,0,1,  s,-s, s, 0,0,1,  s, s, s, 0,0,1,
                 -s,-s, s, 0,0,1,  s, s, s, 0,0,1, -s, s, s, 0,0,1,
-
-                -s,-s,-s, 0,0,-1, -s, s,-s, 0,0,-1,  s, s,-s, 0,0,-1,
-                -s,-s,-s, 0,0,-1,  s, s,-s, 0,0,-1,  s,-s,-s, 0,0,-1,
-
+                // Back face (-Z)
+                -s,-s,-s, 0,0,-1, -s, s,-s, 0,0,-1, s, s,-s, 0,0,-1,
+                -s,-s,-s, 0,0,-1, s, s,-s, 0,0,-1, s,-s,-s, 0,0,-1,
+                // Left face (-X)
                 -s,-s,-s, -1,0,0, -s,-s, s, -1,0,0, -s, s, s, -1,0,0,
                 -s,-s,-s, -1,0,0, -s, s, s, -1,0,0, -s, s,-s, -1,0,0,
-
-                 s,-s,-s, 1,0,0,   s, s,-s, 1,0,0,  s, s, s, 1,0,0,
-                 s,-s,-s, 1,0,0,   s, s, s, 1,0,0,  s,-s, s, 1,0,0,
-
-                -s, s,-s, 0,1,0,  -s, s, s, 0,1,0,  s, s, s, 0,1,0,
-                -s, s,-s, 0,1,0,   s, s, s, 0,1,0,  s, s,-s, 0,1,0,
-
-                -s,-s,-s, 0,-1,0,  s,-s,-s, 0,-1,0,  s,-s, s, 0,-1,0,
-                -s,-s,-s, 0,-1,0,  s,-s, s, 0,-1,0, -s,-s, s, 0,-1,0,
+                // Right face (+X)
+                s,-s,-s, 1,0,0, s, s,-s, 1,0,0, s, s, s, 1,0,0,
+                s,-s,-s, 1,0,0, s, s, s, 1,0,0, s,-s, s, 1,0,0,
+                // Top face (+Y)
+                -s, s,-s, 0,1,0, -s, s, s, 0,1,0, s, s, s, 0,1,0,
+                -s, s,-s, 0,1,0, s, s, s, 0,1,0, s, s,-s, 0,1,0,
+                // Bottom face (-Y)
+                -s,-s,-s, 0,-1,0, s,-s,-s, 0,-1,0, s,-s, s, 0,-1,0,
+                -s,-s,-s, 0,-1,0, s,-s, s, 0,-1,0, -s,-s, s, 0,-1,0,
             };
 
             vbo = GL.GenBuffer();
             vao = GL.GenVertexArray();
-
             GL.BindVertexArray(vao);
             GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
             GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
-
             int stride = 6 * sizeof(float);
             GL.EnableVertexAttribArray(0);
             GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride, 0);
             GL.EnableVertexAttribArray(1);
             GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, stride, 3 * sizeof(float));
-
             GL.BindVertexArray(0);
 
             projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(60f), (float)Size.X / Size.Y, 0.1f, 100f);
@@ -203,16 +186,15 @@ void main()
             GL.Uniform3(uMatDiffuse, new Vector3(0.8f, 0.4f, 0.3f));
             GL.Uniform3(uMatSpecular, new Vector3(0.8f, 0.8f, 0.8f));
             GL.Uniform1(uMatShininess, 64.0f);
-
-            GL.Uniform3(uLightPos, new Vector3(2.0f, 2.0f, 2.0f));
+            // Light (customize here)
+            GL.Uniform3(uLightPos, new Vector3(0.0f, 0.0f, 3.0f));
             GL.Uniform3(uLightColor, new Vector3(1.0f, 1.0f, 1.0f));
-            GL.Uniform1(uLightIntensity, 1.5f);
+            GL.Uniform1(uLightIntensity, 2.0f);
         }
 
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
-
             var kb = KeyboardState;
             var ms = MouseState;
 
@@ -249,11 +231,9 @@ void main()
                 float xoffset = (cur.X - lastMouse.X) * sensitivity;
                 float yoffset = (lastMouse.Y - cur.Y) * sensitivity;
                 lastMouse = cur;
-
                 yaw += xoffset;
                 pitch += yoffset;
                 pitch = Math.Clamp(pitch, -89f, 89f);
-
                 Vector3 dir;
                 dir.X = MathF.Cos(MathHelper.DegreesToRadians(yaw)) * MathF.Cos(MathHelper.DegreesToRadians(pitch));
                 dir.Y = MathF.Sin(MathHelper.DegreesToRadians(pitch));
@@ -265,7 +245,6 @@ void main()
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
-
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
             GL.UseProgram(shaderProgram);
 
