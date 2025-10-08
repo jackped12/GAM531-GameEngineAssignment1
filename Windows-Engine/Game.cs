@@ -1,161 +1,183 @@
-﻿using System;
-using System.Runtime.InteropServices;
+﻿// Game.cs
+using System;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.Common;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.GraphicsLibraryFramework;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
-using ErrorCode = OpenTK.Graphics.OpenGL4.ErrorCode;
 
 namespace Windows_Engine
 {
-    public partial class Game : GameWindow
+    public class Game : GameWindow
     {
-        private Matrix4 rotation = MatrixOperations.Identity();
+        // Transforms
+        private Matrix4 rotation = MatrixOperations.Identity;   // property, not a method
         private Vector3 position = Vector3.Zero;
         private float scaleFactor = 1.0f;
-        private double totalTime = 0.0;
-        private bool hasTranslated = false; // Flag to stop after one translation
+
+        // GL objects
         private int shaderProgram;
         private int vao, vbo;
-        private int mvpUniform;
-        private int texture;
-        private int texSamplerUniform;
+
+        // Uniforms
+        private int uModel, uView, uProj;
+        private int uLightPos, uLightColor, uLightIntensity;
+        private int uViewPos;
+        private int uMatAmbient, uMatDiffuse, uMatSpecular, uMatShininess;
+
+        // Camera
+        private Vector3 camPos = new Vector3(0, 0, 3);
+        private Vector3 camFront = -Vector3.UnitZ;
+        private Vector3 camUp = Vector3.UnitY;
+        private float yaw = -90f;
+        private float pitch = 0f;
+        private bool firstMouse = true;
+        private Vector2 lastMouse;
+        private bool mouseLook = false;
+
+        // Projection
         private Matrix4 projection;
 
-        [LibraryImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static partial bool AllocConsole();
-
         public Game()
-            : base(GameWindowSettings.Default, new NativeWindowSettings { ClientSize = new Vector2i(800, 600), Title = "Textured Cube" })
+            : base(GameWindowSettings.Default, new NativeWindowSettings
+            {
+                ClientSize = new Vector2i(800, 600),
+                Title = "Windows_Engine - Phong Lighting"
+            })
         { }
 
         protected override void OnLoad()
         {
             base.OnLoad();
-            AllocConsole();
-            VSync = VSyncMode.On;
-            GL.Viewport(0, 0, Size.X, Size.Y);
-            GL.ClearColor(0.2f, 0.2f, 0.3f, 1f);
-            GL.Enable(EnableCap.DepthTest);
-            string vertexShaderSource = """
-                #version 330 core
-                layout(location = 0) in vec3 aPosition;
-                layout(location = 1) in vec2 aTexCoord;
-                uniform mat4 mvp;
-                out vec2 vTexCoord;
-                void main()
-                {
-                    gl_Position = mvp * vec4(aPosition, 1.0);
-                    vTexCoord = aTexCoord;
-                }
-                """;
 
-            string fragmentShaderSource = """
-                #version 330 core
-                in vec2 vTexCoord;
-                out vec4 FragColor;
-                uniform sampler2D tex;
-                void main()
-                {
-                    FragColor = texture(tex, vTexCoord);
-                }
-                """;
+            GL.Viewport(0, 0, Size.X, Size.Y);
+            GL.ClearColor(0.1f, 0.12f, 0.15f, 1f);
+            GL.Enable(EnableCap.DepthTest);
+            GL.Enable(EnableCap.CullFace);
+            GL.CullFace(CullFaceMode.Back);
+
+            // Shaders
+            string vertexSrc = @"
+#version 330 core
+layout (location = 0) in vec3 aPosition;
+layout (location = 1) in vec3 aNormal;
+
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProj;
+
+out vec3 vFragPos;
+out vec3 vNormal;
+
+void main()
+{
+    vec4 worldPos = uModel * vec4(aPosition, 1.0);
+    vFragPos = worldPos.xyz;
+
+    // Transform normals by inverse-transpose of model
+    mat3 normalMat = mat3(transpose(inverse(uModel)));
+    vNormal = normalize(normalMat * aNormal);
+
+    gl_Position = uProj * uView * worldPos;
+}";
+
+            string fragmentSrc = @"
+#version 330 core
+in vec3 vFragPos;
+in vec3 vNormal;
+
+out vec4 FragColor;
+
+uniform vec3 uViewPos;
+
+uniform vec3 uLightPos;
+uniform vec3 uLightColor;
+uniform float uLightIntensity;
+
+uniform vec3 uMatAmbient;
+uniform vec3 uMatDiffuse;
+uniform vec3 uMatSpecular;
+uniform float uMatShininess;
+
+void main()
+{
+    // Ambient
+    vec3 ambient = uMatAmbient * uLightColor * uLightIntensity;
+
+    // Diffuse
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightPos - vFragPos);
+    float diff = max(dot(N, L), 0.0);
+    vec3 diffuse = uMatDiffuse * diff * uLightColor * uLightIntensity;
+
+    // Specular (Blinn-Phong)
+    vec3 V = normalize(uViewPos - vFragPos);
+    vec3 H = normalize(L + V);
+    float spec = pow(max(dot(N, H), 0.0), uMatShininess);
+    vec3 specular = uMatSpecular * spec * uLightColor * uLightIntensity;
+
+    FragColor = vec4(ambient + diffuse + specular, 1.0);
+}";
 
             int vShader = GL.CreateShader(ShaderType.VertexShader);
-            GL.ShaderSource(vShader, vertexShaderSource);
+            GL.ShaderSource(vShader, vertexSrc);
             GL.CompileShader(vShader);
-            GL.GetShader(vShader, ShaderParameter.CompileStatus, out int vStatus);
-            if (vStatus != (int)All.True)
-            {
-                Console.WriteLine("Vertex shader compile error:");
-                Console.WriteLine(GL.GetShaderInfoLog(vShader));
-            }
+            GL.GetShader(vShader, ShaderParameter.CompileStatus, out int vok);
+            if (vok != (int)All.True)
+                throw new Exception("Vertex shader error: " + GL.GetShaderInfoLog(vShader));
 
             int fShader = GL.CreateShader(ShaderType.FragmentShader);
-            GL.ShaderSource(fShader, fragmentShaderSource);
+            GL.ShaderSource(fShader, fragmentSrc);
             GL.CompileShader(fShader);
-            GL.GetShader(fShader, ShaderParameter.CompileStatus, out int fStatus);
-            if (fStatus != (int)All.True)
-            {
-                Console.WriteLine("Fragment shader compile error:");
-                Console.WriteLine(GL.GetShaderInfoLog(fShader));
-            }
+            GL.GetShader(fShader, ShaderParameter.CompileStatus, out int fok);
+            if (fok != (int)All.True)
+                throw new Exception("Fragment shader error: " + GL.GetShaderInfoLog(fShader));
 
             shaderProgram = GL.CreateProgram();
             GL.AttachShader(shaderProgram, vShader);
             GL.AttachShader(shaderProgram, fShader);
             GL.LinkProgram(shaderProgram);
-
-            GL.GetProgram(shaderProgram, GetProgramParameterName.LinkStatus, out int linkStatus);
-            if (linkStatus != (int)All.True)
-            {
-                Console.WriteLine("Program link error:");
-                Console.WriteLine(GL.GetProgramInfoLog(shaderProgram));
-            }
-
+            GL.GetProgram(shaderProgram, GetProgramParameterName.LinkStatus, out int linked);
+            if (linked != (int)All.True)
+                throw new Exception("Program link error: " + GL.GetProgramInfoLog(shaderProgram));
             GL.DeleteShader(vShader);
             GL.DeleteShader(fShader);
 
-            mvpUniform = GL.GetUniformLocation(shaderProgram, "mvp");
-            texSamplerUniform = GL.GetUniformLocation(shaderProgram, "tex");
+            // Uniforms
+            uModel = GL.GetUniformLocation(shaderProgram, "uModel");
+            uView = GL.GetUniformLocation(shaderProgram, "uView");
+            uProj = GL.GetUniformLocation(shaderProgram, "uProj");
+            uLightPos = GL.GetUniformLocation(shaderProgram, "uLightPos");
+            uLightColor = GL.GetUniformLocation(shaderProgram, "uLightColor");
+            uLightIntensity = GL.GetUniformLocation(shaderProgram, "uLightIntensity");
+            uViewPos = GL.GetUniformLocation(shaderProgram, "uViewPos");
+            uMatAmbient = GL.GetUniformLocation(shaderProgram, "uMatAmbient");
+            uMatDiffuse = GL.GetUniformLocation(shaderProgram, "uMatDiffuse");
+            uMatSpecular = GL.GetUniformLocation(shaderProgram, "uMatSpecular");
+            uMatShininess = GL.GetUniformLocation(shaderProgram, "uMatShininess");
 
-            GL.UseProgram(shaderProgram);
-            GL.Uniform1(texSamplerUniform, 0); // Texture unit 0
+            // Cube vertices with per-face normals
+            float s = 0.5f;
+            float[] vertices =
+            {
+                // pos              // normal
+                -s,-s, s, 0,0,1,  s,-s, s, 0,0,1,  s, s, s, 0,0,1,
+                -s,-s, s, 0,0,1,  s, s, s, 0,0,1, -s, s, s, 0,0,1,
 
-            // Vertex data: position (x,y,z) + tex coords (u,v)
-            float[] vertices = {
-                // Front face
-                -0.5f, -0.5f,  0.5f,  0f, 0f,
-                 0.5f, -0.5f,  0.5f,  1f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f,
-                -0.5f, -0.5f,  0.5f,  0f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f,
-                -0.5f,  0.5f,  0.5f,  0f, 1f,
+                -s,-s,-s, 0,0,-1, -s, s,-s, 0,0,-1,  s, s,-s, 0,0,-1,
+                -s,-s,-s, 0,0,-1,  s, s,-s, 0,0,-1,  s,-s,-s, 0,0,-1,
 
-                // Back face
-                -0.5f, -0.5f, -0.5f,  1f, 0f,
-                -0.5f,  0.5f, -0.5f,  1f, 1f,
-                 0.5f,  0.5f, -0.5f,  0f, 1f,
-                -0.5f, -0.5f, -0.5f,  1f, 0f,
-                 0.5f,  0.5f, -0.5f,  0f, 1f,
-                 0.5f, -0.5f, -0.5f,  0f, 0f,
+                -s,-s,-s, -1,0,0, -s,-s, s, -1,0,0, -s, s, s, -1,0,0,
+                -s,-s,-s, -1,0,0, -s, s, s, -1,0,0, -s, s,-s, -1,0,0,
 
-                // Left face
-                -0.5f, -0.5f, -0.5f,  0f, 0f,
-                -0.5f,  0.5f, -0.5f,  1f, 0f,
-                -0.5f,  0.5f,  0.5f,  1f, 1f,
-                -0.5f, -0.5f, -0.5f,  0f, 0f,
-                -0.5f,  0.5f,  0.5f,  1f, 1f,
-                -0.5f, -0.5f,  0.5f,  0f, 1f,
+                 s,-s,-s, 1,0,0,   s, s,-s, 1,0,0,  s, s, s, 1,0,0,
+                 s,-s,-s, 1,0,0,   s, s, s, 1,0,0,  s,-s, s, 1,0,0,
 
-                // Right face
-                 0.5f, -0.5f, -0.5f,  0f, 0f,
-                 0.5f,  0.5f, -0.5f,  1f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f,
-                 0.5f, -0.5f, -0.5f,  0f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f,
-                 0.5f, -0.5f,  0.5f,  0f, 1f,
+                -s, s,-s, 0,1,0,  -s, s, s, 0,1,0,  s, s, s, 0,1,0,
+                -s, s,-s, 0,1,0,   s, s, s, 0,1,0,  s, s,-s, 0,1,0,
 
-                // Top face
-                -0.5f,  0.5f, -0.5f,  0f, 0f,
-                 0.5f,  0.5f, -0.5f,  1f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f,
-                -0.5f,  0.5f, -0.5f,  0f, 0f,
-                 0.5f,  0.5f,  0.5f,  1f, 1f,
-                -0.5f,  0.5f,  0.5f,  0f, 1f,
-
-                // Bottom face
-                -0.5f, -0.5f, -0.5f,  0f, 0f,
-                 0.5f, -0.5f, -0.5f,  1f, 0f,
-                 0.5f, -0.5f,  0.5f,  1f, 1f,
-                -0.5f, -0.5f, -0.5f,  0f, 0f,
-                 0.5f, -0.5f,  0.5f,  1f, 1f,
-                -0.5f, -0.5f,  0.5f,  0f, 1f,
+                -s,-s,-s, 0,-1,0,  s,-s,-s, 0,-1,0,  s,-s, s, 0,-1,0,
+                -s,-s,-s, 0,-1,0,  s,-s, s, 0,-1,0, -s,-s, s, 0,-1,0,
             };
 
             vbo = GL.GenBuffer();
@@ -165,150 +187,78 @@ namespace Windows_Engine
             GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
             GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
 
+            int stride = 6 * sizeof(float);
             GL.EnableVertexAttribArray(0);
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 5 * sizeof(float), 0);
-
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride, 0);
             GL.EnableVertexAttribArray(1);
-            GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 5 * sizeof(float), (IntPtr)(3 * sizeof(float)));
+            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, stride, 3 * sizeof(float));
 
             GL.BindVertexArray(0);
 
-            // Load texture from file or fallback gradient
-            try
-            {
-                texture = TextureLoader.LoadTexture("Assets/texture.jpg");
-                Console.WriteLine("Texture loaded successfully.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Texture loading failed: {ex.Message}");
-                texture = TextureLoader.CreateGradientTexture(256, 256);
-                Console.WriteLine("Fallback gradient texture created.");
-            }
+            projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(60f), (float)Size.X / Size.Y, 0.1f, 100f);
 
-            projection = Matrix4.CreatePerspectiveFieldOfView(
-                MathHelper.DegreesToRadians(60f),
-                (float)Size.X / Size.Y,
-                0.1f, 100f);
+            // Set material and light
+            GL.UseProgram(shaderProgram);
+            GL.Uniform3(uMatAmbient, new Vector3(0.1f, 0.1f, 0.1f));
+            GL.Uniform3(uMatDiffuse, new Vector3(0.8f, 0.4f, 0.3f));
+            GL.Uniform3(uMatSpecular, new Vector3(0.8f, 0.8f, 0.8f));
+            GL.Uniform1(uMatShininess, 64.0f);
+
+            GL.Uniform3(uLightPos, new Vector3(2.0f, 2.0f, 2.0f));
+            GL.Uniform3(uLightColor, new Vector3(1.0f, 1.0f, 1.0f));
+            GL.Uniform1(uLightIntensity, 1.5f);
         }
 
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
 
-            totalTime += args.Time;
-            float deltaTime = (float)args.Time;
-            float rotSpeed = 2.0f;
-            float moveSpeed = 1.0f;
-            float scaleSpeed = 0.5f;
+            var kb = KeyboardState;
+            var ms = MouseState;
 
-            bool rotInput = false;
-            bool moveInput = false;
-            bool scaleInput = false;
+            // Right mouse = look
+            if (ms.IsButtonDown(MouseButton.Right))
+            {
+                if (!mouseLook) { mouseLook = true; firstMouse = true; }
+            }
+            else mouseLook = false;
 
-            // Rotation controls (user)
-            if (KeyboardState.IsKeyDown(Keys.W))
-            {
-                var rot = MatrixOperations.RotationX(rotSpeed * deltaTime);
-                rotation = MatrixOperations.Multiply(rotation, rot);
-                rotInput = true;
-            }
-            if (KeyboardState.IsKeyDown(Keys.S))
-            {
-                var rot = MatrixOperations.RotationX(-rotSpeed * deltaTime);
-                rotation = MatrixOperations.Multiply(rotation, rot);
-                rotInput = true;
-            }
-            if (KeyboardState.IsKeyDown(Keys.A))
-            {
-                var rot = MatrixOperations.RotationY(rotSpeed * deltaTime);
-                rotation = MatrixOperations.Multiply(rotation, rot);
-                rotInput = true;
-            }
-            if (KeyboardState.IsKeyDown(Keys.D))
-            {
-                var rot = MatrixOperations.RotationY(-rotSpeed * deltaTime);
-                rotation = MatrixOperations.Multiply(rotation, rot);
-                rotInput = true;
-            }
+            float moveSpeed = 3.0f * (float)args.Time;
+            Vector3 camRight = Vector3.Normalize(Vector3.Cross(camFront, camUp));
 
-            // Translation controls (user, using vector operations)
-            if (KeyboardState.IsKeyDown(Keys.Up))
-            {
-                position += VectorOperations.Add.Normalized() * moveSpeed * deltaTime;
-                moveInput = true;
-            }
-            if (KeyboardState.IsKeyDown(Keys.Down))
-            {
-                position -= VectorOperations.Add.Normalized() * moveSpeed * deltaTime;
-                moveInput = true;
-            }
-            if (KeyboardState.IsKeyDown(Keys.Left))
-            {
-                position += VectorOperations.Cross.Normalized() * moveSpeed * deltaTime;
-                moveInput = true;
-            }
-            if (KeyboardState.IsKeyDown(Keys.Right))
-            {
-                position -= VectorOperations.Cross.Normalized() * moveSpeed * deltaTime;
-                moveInput = true;
-            }
+            if (kb.IsKeyDown(Keys.W)) camPos += camFront * moveSpeed;
+            if (kb.IsKeyDown(Keys.S)) camPos -= camFront * moveSpeed;
+            if (kb.IsKeyDown(Keys.A)) camPos -= camRight * moveSpeed;
+            if (kb.IsKeyDown(Keys.D)) camPos += camRight * moveSpeed;
+            if (kb.IsKeyDown(Keys.Space)) camPos += camUp * moveSpeed;
+            if (kb.IsKeyDown(Keys.LeftControl)) camPos -= camUp * moveSpeed;
 
-            // Scale controls (user)
-            if (KeyboardState.IsKeyDown(Keys.Q))
-            {
-                scaleFactor += scaleSpeed * deltaTime;
-                scaleInput = true;
-            }
-            if (KeyboardState.IsKeyDown(Keys.E))
-            {
-                scaleFactor -= scaleSpeed * deltaTime;
-                scaleInput = true;
-            }
-            scaleFactor = Math.Max(0.1f, scaleFactor);
+            float rotSpeed = 1.5f * (float)args.Time;
+            if (kb.IsKeyDown(Keys.Left)) rotation = MatrixOperations.Multiply(rotation, MatrixOperations.RotationY(rotSpeed));
+            if (kb.IsKeyDown(Keys.Right)) rotation = MatrixOperations.Multiply(rotation, MatrixOperations.RotationY(-rotSpeed));
+            if (kb.IsKeyDown(Keys.Up)) rotation = MatrixOperations.Multiply(rotation, MatrixOperations.RotationX(rotSpeed));
+            if (kb.IsKeyDown(Keys.Down)) rotation = MatrixOperations.Multiply(rotation, MatrixOperations.RotationX(-rotSpeed));
 
-            // Continuous auto rotation around Y axis (always applied)
-            var autoRot = MatrixOperations.RotationY(0.5f * deltaTime);
-            rotation = MatrixOperations.Multiply(rotation, autoRot);
+            if (kb.IsKeyDown(Keys.Escape)) Close();
 
-            if (!moveInput)
+            if (mouseLook)
             {
-                // Perform one-time translation and stop
-                if (!hasTranslated)
-                {
-                    Vector3 direction = VectorOperations.Subtract;
-                    float translationAmount = 0.05f;
-                    Vector3 delta = direction * translationAmount;
-                    Vector3 oldPosition = position;
-                    position += delta;
+                Vector2 cur = ms.Position;
+                if (firstMouse) { lastMouse = cur; firstMouse = false; }
+                float sensitivity = 0.1f;
+                float xoffset = (cur.X - lastMouse.X) * sensitivity;
+                float yoffset = (lastMouse.Y - cur.Y) * sensitivity;
+                lastMouse = cur;
 
-                    // Log the math involved
-                    Console.WriteLine("\n=== Translation Math Log ===");
-                    Console.WriteLine($"Vector A: {VectorOperations.A}");
-                    Console.WriteLine($"Vector B: {VectorOperations.B}");
-                    Console.WriteLine($"Subtract Vector (A - B): {direction}");
-                    Console.WriteLine($"Dot Product (A · B): {VectorOperations.Dot}");
-                    Console.WriteLine($"Cross Product (A × B): {VectorOperations.Cross}");
-                    Console.WriteLine($"Add Vector (A + B): {VectorOperations.Add}");
-                    Console.WriteLine($"Translation Amount: {translationAmount}");
-                    Console.WriteLine($"Delta Translation: {delta}");
-                    Console.WriteLine($"Initial Position: {oldPosition}");
-                    Console.WriteLine($"New Position: {position}");
-                    Console.WriteLine($"Translation Matrix:\n{MatrixOperations.Translate(position.X, position.Y, position.Z)}");
-                    Console.WriteLine("=== End Log ===");
+                yaw += xoffset;
+                pitch += yoffset;
+                pitch = Math.Clamp(pitch, -89f, 89f);
 
-                    hasTranslated = true;
-                }
-            }
-            if (!scaleInput)
-            {
-                // Auto oscillate scale
-                scaleFactor = 1.0f + 0.2f * MathF.Sin((float)totalTime);
-            }
-
-            if (KeyboardState.IsKeyDown(Keys.Escape))
-            {
-                Close();
+                Vector3 dir;
+                dir.X = MathF.Cos(MathHelper.DegreesToRadians(yaw)) * MathF.Cos(MathHelper.DegreesToRadians(pitch));
+                dir.Y = MathF.Sin(MathHelper.DegreesToRadians(pitch));
+                dir.Z = MathF.Sin(MathHelper.DegreesToRadians(yaw)) * MathF.Cos(MathHelper.DegreesToRadians(pitch));
+                camFront = Vector3.Normalize(dir);
             }
         }
 
@@ -317,43 +267,31 @@ namespace Windows_Engine
             base.OnRenderFrame(args);
 
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-
             GL.UseProgram(shaderProgram);
 
-            // Build model matrix: translate * rotation * scale
-            var scaleMat = MatrixOperations.Scale(scaleFactor, scaleFactor, scaleFactor);
-            var transMat = MatrixOperations.Translate(position.X, position.Y, position.Z);
-            var model = MatrixOperations.Multiply(transMat, MatrixOperations.Multiply(rotation, scaleMat));
+            var model = MatrixOperations.Multiply(
+                MatrixOperations.Translate(position.X, position.Y, position.Z),
+                MatrixOperations.Multiply(rotation, MatrixOperations.Scale(scaleFactor, scaleFactor, scaleFactor))
+            );
+            var view = Matrix4.LookAt(camPos, camPos + camFront, camUp);
 
-            var view = Matrix4.LookAt(new Vector3(2.5f, 2.5f, 2.5f), Vector3.Zero, Vector3.UnitY);
-            var mvp = MatrixOperations.Multiply(model, MatrixOperations.Multiply(view, projection));
-
-            GL.UniformMatrix4(mvpUniform, false, ref mvp);
-
-            GL.ActiveTexture(TextureUnit.Texture0);
-            GL.BindTexture(TextureTarget.Texture2D, texture);
+            GL.UniformMatrix4(uModel, false, ref model);
+            GL.UniformMatrix4(uView, false, ref view);
+            GL.UniformMatrix4(uProj, false, ref projection);
+            GL.Uniform3(uViewPos, camPos);
 
             GL.BindVertexArray(vao);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
             GL.BindVertexArray(0);
 
-            var error = GL.GetError();
-            if (error != ErrorCode.NoError)
-            {
-                Console.WriteLine($"OpenGL Error: {error}");
-            }
-
             SwapBuffers();
         }
 
-        protected override void OnResize(OpenTK.Windowing.Common.ResizeEventArgs e)
+        protected override void OnResize(ResizeEventArgs e)
         {
             base.OnResize(e);
             GL.Viewport(0, 0, e.Width, e.Height);
-            projection = Matrix4.CreatePerspectiveFieldOfView(
-                MathHelper.DegreesToRadians(60f),
-                (float)e.Width / e.Height,
-                0.1f, 100f);
+            projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(60f), (float)e.Width / e.Height, 0.1f, 100f);
         }
 
         protected override void OnUnload()
@@ -362,7 +300,6 @@ namespace Windows_Engine
             GL.DeleteBuffer(vbo);
             GL.DeleteVertexArray(vao);
             GL.DeleteProgram(shaderProgram);
-            GL.DeleteTexture(texture);
         }
     }
 }

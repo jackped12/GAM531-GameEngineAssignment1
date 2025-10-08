@@ -20,7 +20,7 @@ namespace Windows_Engine
 
             // Demo matrix operations (optional)
             Console.WriteLine("\n=== Matrix Operations ===");
-            var identity = MatrixOperations.Identity();
+            var identity = MatrixOperations.Identity;
             var scale = MatrixOperations.Scale(2, 2, 2);
             var rotation = MatrixOperations.RotationZ(MathF.PI / 2);
 
