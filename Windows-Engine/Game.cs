@@ -1,6 +1,4 @@
-﻿// Game.cs
-
-using System;
+﻿using System;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.Common;
 using OpenTK.Graphics.OpenGL4;
@@ -20,21 +18,24 @@ namespace Windows_Engine
         private int shaderProgram;
         private int vao, vbo;
 
+        // Player cube position
+        private Vector3 playerPosition = Vector3.Zero;
+        private float playerScale = 1.0f;
+
         // Uniforms
         private int uModel, uView, uProj;
         private int uLightPos, uLightColor, uLightIntensity;
         private int uViewPos;
         private int uMatAmbient, uMatDiffuse, uMatSpecular, uMatShininess;
 
-        // Camera
-        private Vector3 camPos = new Vector3(0, 0, 3);
-        private Vector3 camFront = -Vector3.UnitZ;
-        private Vector3 camUp = Vector3.UnitY;
-        private float yaw = -90f;
-        private float pitch = 0f;
+        // Camera system
+        private Camera camera = new Camera();
+        private bool isThirdPerson = true;
+        private float thirdPersonDistance = 5.0f;
+        private float thirdPersonHeight = 2.0f;
+
         private bool firstMouse = true;
         private Vector2 lastMouse;
-        private bool mouseLook = false;
 
         // Projection
         private Matrix4 projection;
@@ -195,69 +196,89 @@ void main()
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
+
             var kb = KeyboardState;
             var ms = MouseState;
 
-            // Right mouse = look
+            // Toggle camera mode with V key
+            if (kb.IsKeyPressed(Keys.V))
+            {
+                isThirdPerson = !isThirdPerson;
+            }
+
+            // Right mouse button enables look mode
             if (ms.IsButtonDown(MouseButton.Right))
             {
-                if (!mouseLook) { mouseLook = true; firstMouse = true; }
+                if (!firstMouse)
+                {
+                    var curMouse = ms.Position;
+                    if (firstMouse)
+                    {
+                        lastMouse = curMouse;
+                        firstMouse = false;
+                    }
+
+                    float xoffset = curMouse.X - lastMouse.X;
+                    float yoffset = lastMouse.Y - curMouse.Y;
+
+                    lastMouse = curMouse;
+
+                    camera.UpdateDirection(xoffset, yoffset);
+                }
+                else
+                {
+                    firstMouse = false;
+                    lastMouse = ms.Position;
+                }
             }
-            else mouseLook = false;
-
-            float moveSpeed = 3.0f * (float)args.Time;
-            Vector3 camRight = Vector3.Normalize(Vector3.Cross(camFront, camUp));
-
-            if (kb.IsKeyDown(Keys.W)) camPos += camFront * moveSpeed;
-            if (kb.IsKeyDown(Keys.S)) camPos -= camFront * moveSpeed;
-            if (kb.IsKeyDown(Keys.A)) camPos -= camRight * moveSpeed;
-            if (kb.IsKeyDown(Keys.D)) camPos += camRight * moveSpeed;
-            if (kb.IsKeyDown(Keys.Space)) camPos += camUp * moveSpeed;
-            if (kb.IsKeyDown(Keys.LeftControl)) camPos -= camUp * moveSpeed;
-
-            float rotSpeed = 1.5f * (float)args.Time;
-            if (kb.IsKeyDown(Keys.Left)) rotation = MatrixOperations.Multiply(rotation, MatrixOperations.RotationY(rotSpeed));
-            if (kb.IsKeyDown(Keys.Right)) rotation = MatrixOperations.Multiply(rotation, MatrixOperations.RotationY(-rotSpeed));
-            if (kb.IsKeyDown(Keys.Up)) rotation = MatrixOperations.Multiply(rotation, MatrixOperations.RotationX(rotSpeed));
-            if (kb.IsKeyDown(Keys.Down)) rotation = MatrixOperations.Multiply(rotation, MatrixOperations.RotationX(-rotSpeed));
-
-            if (kb.IsKeyDown(Keys.Escape)) Close();
-
-            if (mouseLook)
+            else
             {
-                Vector2 cur = ms.Position;
-                if (firstMouse) { lastMouse = cur; firstMouse = false; }
-                float sensitivity = 0.1f;
-                float xoffset = (cur.X - lastMouse.X) * sensitivity;
-                float yoffset = (lastMouse.Y - cur.Y) * sensitivity;
-                lastMouse = cur;
-                yaw += xoffset;
-                pitch += yoffset;
-                pitch = Math.Clamp(pitch, -89f, 89f);
-                Vector3 dir;
-                dir.X = MathF.Cos(MathHelper.DegreesToRadians(yaw)) * MathF.Cos(MathHelper.DegreesToRadians(pitch));
-                dir.Y = MathF.Sin(MathHelper.DegreesToRadians(pitch));
-                dir.Z = MathF.Sin(MathHelper.DegreesToRadians(yaw)) * MathF.Cos(MathHelper.DegreesToRadians(pitch));
-                camFront = Vector3.Normalize(dir);
+                firstMouse = true; // reset on mouse release so next hold is smooth
+            }
+
+            // Update camera position based on mode
+            if (isThirdPerson)
+            {
+                Vector3 desiredPosition = playerPosition - camera.Front * thirdPersonDistance + new Vector3(0, thirdPersonHeight, 0);
+                camera.Position = desiredPosition;
+            }
+            else
+            {
+                camera.Position = playerPosition;
+            }
+
+            // Basic player movement (WASD) to move the cube in world space
+            float moveSpeed = 3.0f * (float)args.Time;
+            if (kb.IsKeyDown(Keys.W)) playerPosition += camera.Front * moveSpeed;
+            if (kb.IsKeyDown(Keys.S)) playerPosition -= camera.Front * moveSpeed;
+            Vector3 camRight = Vector3.Normalize(Vector3.Cross(camera.Front, camera.Up));
+            if (kb.IsKeyDown(Keys.A)) playerPosition -= camRight * moveSpeed;
+            if (kb.IsKeyDown(Keys.D)) playerPosition += camRight * moveSpeed;
+            if (kb.IsKeyDown(Keys.Space)) playerPosition += Vector3.UnitY * moveSpeed;
+            if (kb.IsKeyDown(Keys.LeftControl)) playerPosition -= Vector3.UnitY * moveSpeed;
+
+            if (kb.IsKeyDown(Keys.Escape))
+            {
+                Close();
             }
         }
-
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
+
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
             GL.UseProgram(shaderProgram);
 
-            var model = MatrixOperations.Multiply(
-                MatrixOperations.Translate(position.X, position.Y, position.Z),
-                MatrixOperations.Multiply(rotation, MatrixOperations.Scale(scaleFactor, scaleFactor, scaleFactor))
-            );
-            var view = Matrix4.LookAt(camPos, camPos + camFront, camUp);
+            Matrix4 model = Matrix4.CreateScale(playerScale) * Matrix4.CreateTranslation(playerPosition);
 
+            // Pass matrices to shader
             GL.UniformMatrix4(uModel, false, ref model);
+            Matrix4 view = camera.GetViewMatrix();
             GL.UniformMatrix4(uView, false, ref view);
             GL.UniformMatrix4(uProj, false, ref projection);
-            GL.Uniform3(uViewPos, camPos);
+
+            // Camera position for lighting calculations
+            GL.Uniform3(uViewPos, camera.Position);
 
             GL.BindVertexArray(vao);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
