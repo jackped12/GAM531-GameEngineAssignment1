@@ -1,4 +1,6 @@
-﻿using System;
+﻿using OpenTK.Windowing.Desktop;
+using System;
+using Windows_Engine;
 
 namespace Windows_Engine
 {
@@ -6,32 +8,13 @@ namespace Windows_Engine
     {
         static void Main()
         {
-            using (Game game = new Game())
+            using var game = new Game(GameWindowSettings.Default, new NativeWindowSettings()
             {
-                game.Run(); // Launch OpenTK game window
-            }
-
-            // Demo vector operations (optional)
-            Console.WriteLine("\n=== Vector Operations ===");
-            Console.WriteLine($"A + B = {VectorOperations.Add}");
-            Console.WriteLine($"A - B = {VectorOperations.Subtract}");
-            Console.WriteLine($"Dot(A, B) = {VectorOperations.Dot}");
-            Console.WriteLine($"Cross(A, B) = {VectorOperations.Cross}");
-
-            // Demo matrix operations (optional)
-            Console.WriteLine("\n=== Matrix Operations ===");
-            var identity = MatrixOperations.Identity;
-            var scale = MatrixOperations.Scale(2, 2, 2);
-            var rotation = MatrixOperations.RotationZ(MathF.PI / 2);
-
-            Console.WriteLine($"Identity:\n{identity}");
-            Console.WriteLine($"Scale (2,2,2):\n{scale}");
-            Console.WriteLine($"Rotation Z (90°):\n{rotation}");
-
-            // Combine scale + rotation using Multiply
-            var combined = MatrixOperations.Multiply(rotation, scale);
-            Console.WriteLine("\nCombined Scale + Rotation:");
-            Console.WriteLine(combined);
+                Title = "OpenTK Phong Scene",
+                ClientSize = new OpenTK.Mathematics.Vector2i(1280, 720),
+                Vsync = OpenTK.Windowing.Common.VSyncMode.On
+            });
+            game.Run();
         }
     }
 }

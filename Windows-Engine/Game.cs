@@ -1,305 +1,325 @@
-﻿using System;
-using OpenTK.Windowing.Desktop;
-using OpenTK.Windowing.Common;
-using OpenTK.Graphics.OpenGL4;
+﻿using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
+using OpenTK.Windowing.Common;
+using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using System;
+using Windows_Engine;
 
 namespace Windows_Engine
 {
     public class Game : GameWindow
     {
-        // Transforms
-        private Matrix4 rotation = MatrixOperations.Identity;
-        private Vector3 position = Vector3.Zero;
-        private float scaleFactor = 1.0f;
-
-        // GL objects
         private int shaderProgram;
-        private int vao, vbo;
-
-        // Player cube position
-        private Vector3 playerPosition = Vector3.Zero;
-        private float playerScale = 1.0f;
-
-        // Uniforms
-        private int uModel, uView, uProj;
-        private int uLightPos, uLightColor, uLightIntensity;
-        private int uViewPos;
-        private int uMatAmbient, uMatDiffuse, uMatSpecular, uMatShininess;
-
-        // Camera system
+        private int vaoCube, vaoPyramid, vaoGround;
+        private int texGround, texCube;
         private Camera camera = new Camera();
-        private bool isThirdPerson = true;
-        private float thirdPersonDistance = 5.0f;
-        private float thirdPersonHeight = 2.0f;
+        private Interact interactable;
 
         private bool firstMouse = true;
-        private Vector2 lastMouse;
+        private Vector2 lastMousePos;
+        private bool lightOn = true;
 
-        // Projection
         private Matrix4 projection;
+        private int uModel, uView, uProj, uViewPos, uLightPos, uLightColor, uLightIntensity;
+        private int uMatAmbient, uMatDiffuse, uMatSpecular, uMatShininess;
+        private int uTexture;
 
-        public Game()
-        : base(GameWindowSettings.Default, new NativeWindowSettings
+        public Game(GameWindowSettings gws, NativeWindowSettings nws) : base(gws, nws)
         {
-            ClientSize = new Vector2i(800, 600),
-            Title = "Windows_Engine - Phong Lighting"
-        })
-        { }
+            CursorState = CursorState.Grabbed;
+
+        }
 
         protected override void OnLoad()
         {
             base.OnLoad();
-            GL.Viewport(0, 0, Size.X, Size.Y);
             GL.ClearColor(0.1f, 0.12f, 0.15f, 1f);
             GL.Enable(EnableCap.DepthTest);
-            GL.Enable(EnableCap.CullFace);
-            GL.CullFace(CullFaceMode.Back);
 
-            // Shaders (could load from external files)
-            string vertexSrc = @"
-#version 330 core
-layout (location = 0) in vec3 aPosition;
-layout (location = 1) in vec3 aNormal;
-uniform mat4 uModel;
-uniform mat4 uView;
-uniform mat4 uProj;
-out vec3 vFragPos;
-out vec3 vNormal;
-void main()
-{
-    vec4 worldPos = uModel * vec4(aPosition, 1.0);
-    vFragPos = worldPos.xyz;
-    // Transform normals by inverse-transpose of model
-    mat3 normalMat = mat3(transpose(inverse(uModel)));
-    vNormal = normalize(normalMat * aNormal);
-    gl_Position = uProj * uView * worldPos;
-}";
-            string fragmentSrc = @"
-#version 330 core
-in vec3 vFragPos;
-in vec3 vNormal;
-out vec4 FragColor;
-uniform vec3 uViewPos;
-uniform vec3 uLightPos;
-uniform vec3 uLightColor;
-uniform float uLightIntensity;
-uniform vec3 uMatAmbient;
-uniform vec3 uMatDiffuse;
-uniform vec3 uMatSpecular;
-uniform float uMatShininess;
-void main()
-{
-    // Ambient
-    vec3 ambient = uMatAmbient * uLightColor * uLightIntensity;
-    // Diffuse
-    vec3 N = normalize(vNormal);
-    vec3 L = normalize(uLightPos - vFragPos);
-    float diff = max(dot(N, L), 0.0);
-    vec3 diffuse = uMatDiffuse * diff * uLightColor * uLightIntensity;
-    // Specular (Blinn-Phong)
-    vec3 V = normalize(uViewPos - vFragPos);
-    vec3 H = normalize(L + V);
-    float spec = pow(max(dot(N, H), 0.0), uMatShininess);
-    vec3 specular = uMatSpecular * spec * uLightColor * uLightIntensity;
-    FragColor = vec4(ambient + diffuse + specular, 1.0);
-}";
+            string vertexShader = System.IO.File.ReadAllText("Shaders/phong.vert");
+            string fragmentShader = System.IO.File.ReadAllText("Shaders/phong.frag");
 
-            int vShader = GL.CreateShader(ShaderType.VertexShader);
-            GL.ShaderSource(vShader, vertexSrc);
-            GL.CompileShader(vShader);
-            GL.GetShader(vShader, ShaderParameter.CompileStatus, out int vok);
-            if (vok != (int)All.True)
-                throw new Exception("Vertex shader error: " + GL.GetShaderInfoLog(vShader));
+            int v = GL.CreateShader(ShaderType.VertexShader);
+            GL.ShaderSource(v, vertexShader);
+            GL.CompileShader(v);
+            CheckShaderCompile(v);
 
-            int fShader = GL.CreateShader(ShaderType.FragmentShader);
-            GL.ShaderSource(fShader, fragmentSrc);
-            GL.CompileShader(fShader);
-            GL.GetShader(fShader, ShaderParameter.CompileStatus, out int fok);
-            if (fok != (int)All.True)
-                throw new Exception("Fragment shader error: " + GL.GetShaderInfoLog(fShader));
+            int f = GL.CreateShader(ShaderType.FragmentShader);
+            GL.ShaderSource(f, fragmentShader);
+            GL.CompileShader(f);
+            CheckShaderCompile(f);
 
             shaderProgram = GL.CreateProgram();
-            GL.AttachShader(shaderProgram, vShader);
-            GL.AttachShader(shaderProgram, fShader);
+            GL.AttachShader(shaderProgram, v);
+            GL.AttachShader(shaderProgram, f);
             GL.LinkProgram(shaderProgram);
-            GL.GetProgram(shaderProgram, GetProgramParameterName.LinkStatus, out int linked);
-            if (linked != (int)All.True)
-                throw new Exception("Program link error: " + GL.GetProgramInfoLog(shaderProgram));
-            GL.DeleteShader(vShader);
-            GL.DeleteShader(fShader);
+            CheckProgramLink(shaderProgram);
 
-            // Uniforms
-            uModel = GL.GetUniformLocation(shaderProgram, "uModel");
-            uView = GL.GetUniformLocation(shaderProgram, "uView");
-            uProj = GL.GetUniformLocation(shaderProgram, "uProj");
-            uLightPos = GL.GetUniformLocation(shaderProgram, "uLightPos");
-            uLightColor = GL.GetUniformLocation(shaderProgram, "uLightColor");
-            uLightIntensity = GL.GetUniformLocation(shaderProgram, "uLightIntensity");
-            uViewPos = GL.GetUniformLocation(shaderProgram, "uViewPos");
-            uMatAmbient = GL.GetUniformLocation(shaderProgram, "uMatAmbient");
-            uMatDiffuse = GL.GetUniformLocation(shaderProgram, "uMatDiffuse");
-            uMatSpecular = GL.GetUniformLocation(shaderProgram, "uMatSpecular");
-            uMatShininess = GL.GetUniformLocation(shaderProgram, "uMatShininess");
+            GL.DeleteShader(v);
+            GL.DeleteShader(f);
 
-            // Cube vertices with per-face normals
-            float s = 0.5f;
-            float[] vertices =
-            {
-                // Front face (+Z)
-                -s,-s, s, 0,0,1,  s,-s, s, 0,0,1,  s, s, s, 0,0,1,
-                -s,-s, s, 0,0,1,  s, s, s, 0,0,1, -s, s, s, 0,0,1,
-                // Back face (-Z)
-                -s,-s,-s, 0,0,-1, -s, s,-s, 0,0,-1, s, s,-s, 0,0,-1,
-                -s,-s,-s, 0,0,-1, s, s,-s, 0,0,-1, s,-s,-s, 0,0,-1,
-                // Left face (-X)
-                -s,-s,-s, -1,0,0, -s,-s, s, -1,0,0, -s, s, s, -1,0,0,
-                -s,-s,-s, -1,0,0, -s, s, s, -1,0,0, -s, s,-s, -1,0,0,
-                // Right face (+X)
-                s,-s,-s, 1,0,0, s, s,-s, 1,0,0, s, s, s, 1,0,0,
-                s,-s,-s, 1,0,0, s, s, s, 1,0,0, s,-s, s, 1,0,0,
-                // Top face (+Y)
-                -s, s,-s, 0,1,0, -s, s, s, 0,1,0, s, s, s, 0,1,0,
-                -s, s,-s, 0,1,0, s, s, s, 0,1,0, s, s,-s, 0,1,0,
-                // Bottom face (-Y)
-                -s,-s,-s, 0,-1,0, s,-s,-s, 0,-1,0, s,-s, s, 0,-1,0,
-                -s,-s,-s, 0,-1,0, s,-s, s, 0,-1,0, -s,-s, s, 0,-1,0,
-            };
+            uModel = GL.GetUniformLocation(shaderProgram, "model");
+            uView = GL.GetUniformLocation(shaderProgram, "view");
+            uProj = GL.GetUniformLocation(shaderProgram, "projection");
+            uViewPos = GL.GetUniformLocation(shaderProgram, "viewPos");
+            uLightPos = GL.GetUniformLocation(shaderProgram, "lightPos");
+            uLightColor = GL.GetUniformLocation(shaderProgram, "lightColor");
+            uLightIntensity = GL.GetUniformLocation(shaderProgram, "lightIntensity");
+            uMatAmbient = GL.GetUniformLocation(shaderProgram, "matAmbient");
+            uMatDiffuse = GL.GetUniformLocation(shaderProgram, "matDiffuse");
+            uMatSpecular = GL.GetUniformLocation(shaderProgram, "matSpecular");
+            uMatShininess = GL.GetUniformLocation(shaderProgram, "matShininess");
+            uTexture = GL.GetUniformLocation(shaderProgram, "uTexture");
 
-            vbo = GL.GenBuffer();
-            vao = GL.GenVertexArray();
+            vaoCube = CreateMesh(ShapeFactory.CreateCubeTextured());
+            vaoPyramid = CreateMesh(ShapeFactory.CreatePyramidTextured());
+            vaoGround = CreateMesh(ShapeFactory.CreatePlaneTextured(10f));
+
+            texCube = TextureLoader.LoadTexture("Textures/cube_diffuse.png");
+            texGround = TextureLoader.LoadTexture("Textures/floor_diffuse.png");
+
+            interactable = new Interact(new Vector3(2f, 0.5f, -2f));
+
+            float aspectRatio = (float)Size.X / Size.Y;
+            projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(60f), aspectRatio, 0.1f, 100f);
+        }
+
+        private int CreateMesh(float[] vertices)
+        {
+            int vao = GL.GenVertexArray();
+            int vbo = GL.GenBuffer();
+
             GL.BindVertexArray(vao);
             GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
             GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
-            int stride = 6 * sizeof(float);
-            GL.EnableVertexAttribArray(0);
+
+            int stride = 8 * sizeof(float);
             GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride, 0);
-            GL.EnableVertexAttribArray(1);
+            GL.EnableVertexAttribArray(0);
             GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, stride, 3 * sizeof(float));
+            GL.EnableVertexAttribArray(1);
+            GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride, 6 * sizeof(float));
+            GL.EnableVertexAttribArray(2);
+
             GL.BindVertexArray(0);
-
-            projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(60f), (float)Size.X / Size.Y, 0.1f, 100f);
-
-            // Set material and light
-            GL.UseProgram(shaderProgram);
-            GL.Uniform3(uMatAmbient, new Vector3(0.1f, 0.1f, 0.1f));
-            GL.Uniform3(uMatDiffuse, new Vector3(0.8f, 0.4f, 0.3f));
-            GL.Uniform3(uMatSpecular, new Vector3(0.8f, 0.8f, 0.8f));
-            GL.Uniform1(uMatShininess, 64.0f);
-            // Light (customize here)
-            GL.Uniform3(uLightPos, new Vector3(0.0f, 0.0f, 3.0f));
-            GL.Uniform3(uLightColor, new Vector3(1.0f, 1.0f, 1.0f));
-            GL.Uniform1(uLightIntensity, 2.0f);
+            return vao;
         }
 
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
-
             var kb = KeyboardState;
             var ms = MouseState;
 
-            // Toggle camera mode with V key
-            if (kb.IsKeyPressed(Keys.V))
-            {
-                isThirdPerson = !isThirdPerson;
-            }
+            if (kb.IsKeyDown(Keys.Escape))
+                Close();
 
-            // Right mouse button enables look mode
+            float cameraSpeed = 5f * (float)args.Time;
+            Vector3 right = Vector3.Normalize(Vector3.Cross(camera.Front, camera.Up));
+
+            if (kb.IsKeyDown(Keys.W))
+                camera.Position += camera.Front * cameraSpeed;
+            if (kb.IsKeyDown(Keys.S))
+                camera.Position -= camera.Front * cameraSpeed;
+            if (kb.IsKeyDown(Keys.A))
+                camera.Position -= right * cameraSpeed;
+            if (kb.IsKeyDown(Keys.D))
+                camera.Position += right * cameraSpeed;
+
             if (ms.IsButtonDown(MouseButton.Right))
             {
-                if (!firstMouse)
+                if (firstMouse)
                 {
-                    var curMouse = ms.Position;
-                    if (firstMouse)
-                    {
-                        lastMouse = curMouse;
-                        firstMouse = false;
-                    }
-
-                    float xoffset = curMouse.X - lastMouse.X;
-                    float yoffset = lastMouse.Y - curMouse.Y;
-
-                    lastMouse = curMouse;
-
-                    camera.UpdateDirection(xoffset, yoffset);
-                }
-                else
-                {
+                    lastMousePos = ms.Position;
                     firstMouse = false;
-                    lastMouse = ms.Position;
                 }
-            }
-            else
-            {
-                firstMouse = true; // reset on mouse release so next hold is smooth
-            }
 
-            // Update camera position based on mode
-            if (isThirdPerson)
-            {
-                Vector3 desiredPosition = playerPosition - camera.Front * thirdPersonDistance + new Vector3(0, thirdPersonHeight, 0);
-                camera.Position = desiredPosition;
-            }
-            else
-            {
-                camera.Position = playerPosition;
-            }
+                float xoffset = ms.Position.X - lastMousePos.X;
+                float yoffset = ms.Position.Y - lastMousePos.Y;
+                lastMousePos = ms.Position;
 
-            // Basic player movement (WASD) to move the cube in world space
-            float moveSpeed = 3.0f * (float)args.Time;
-            if (kb.IsKeyDown(Keys.W)) playerPosition += camera.Front * moveSpeed;
-            if (kb.IsKeyDown(Keys.S)) playerPosition -= camera.Front * moveSpeed;
-            Vector3 camRight = Vector3.Normalize(Vector3.Cross(camera.Front, camera.Up));
-            if (kb.IsKeyDown(Keys.A)) playerPosition -= camRight * moveSpeed;
-            if (kb.IsKeyDown(Keys.D)) playerPosition += camRight * moveSpeed;
-            if (kb.IsKeyDown(Keys.Space)) playerPosition += Vector3.UnitY * moveSpeed;
-            if (kb.IsKeyDown(Keys.LeftControl)) playerPosition -= Vector3.UnitY * moveSpeed;
+                camera.UpdateDirection(xoffset, yoffset);
+            }
+            else firstMouse = true;
 
-            if (kb.IsKeyDown(Keys.Escape))
+            if (kb.IsKeyPressed(Keys.E))
             {
-                Close();
+                if (interactable.TryCollect(camera.Position))
+                    Console.WriteLine("Item collected!");
+                else
+                    lightOn = !lightOn;
             }
         }
+
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
-
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
             GL.UseProgram(shaderProgram);
+            GL.Uniform3(uViewPos, camera.Position);
+            GL.Uniform3(uLightPos, new Vector3(0f, 4f, 4f));
+            GL.Uniform3(uLightColor, new Vector3(1f, 1f, 1f));
+            GL.Uniform1(uLightIntensity, lightOn ? 2.0f : 0.0f);
 
-            Matrix4 model = Matrix4.CreateScale(playerScale) * Matrix4.CreateTranslation(playerPosition);
+            GL.Uniform3(uMatAmbient, new Vector3(0.2f));
+            GL.Uniform3(uMatDiffuse, new Vector3(0.8f, 0.6f, 0.4f));
+            GL.Uniform3(uMatSpecular, new Vector3(0.8f));
+            GL.Uniform1(uMatShininess, 64f);
 
-            // Pass matrices to shader
-            GL.UniformMatrix4(uModel, false, ref model);
             Matrix4 view = camera.GetViewMatrix();
             GL.UniformMatrix4(uView, false, ref view);
             GL.UniformMatrix4(uProj, false, ref projection);
 
-            // Camera position for lighting calculations
-            GL.Uniform3(uViewPos, camera.Position);
+            // Draw ground
+            GL.BindVertexArray(vaoGround);
+            GL.ActiveTexture(TextureUnit.Texture0);
+            GL.BindTexture(TextureTarget.Texture2D, texGround);
+            GL.Uniform1(uTexture, 0);
+            Matrix4 model = Matrix4.CreateTranslation(0f, -1f, 0f);
+            GL.UniformMatrix4(uModel, false, ref model);
+            GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
 
-            GL.BindVertexArray(vao);
+            // Draw cube
+            GL.BindVertexArray(vaoCube);
+            GL.BindTexture(TextureTarget.Texture2D, texCube);
+            GL.Uniform1(uTexture, 0);
+            model = Matrix4.Identity;
+            GL.UniformMatrix4(uModel, false, ref model);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
-            GL.BindVertexArray(0);
+
+            // Draw pyramid item if not collected
+            if (!interactable.IsCollected)
+            {
+                GL.BindVertexArray(vaoPyramid);
+                GL.BindTexture(TextureTarget.Texture2D, texCube); // reuse cube tex
+                GL.Uniform1(uTexture, 0);
+                model = Matrix4.CreateTranslation(interactable.ItemPosition);
+                GL.UniformMatrix4(uModel, false, ref model);
+                GL.DrawArrays(PrimitiveType.Triangles, 0, 18);
+            }
 
             SwapBuffers();
         }
 
-        protected override void OnResize(ResizeEventArgs e)
+        private void CheckShaderCompile(int shader)
         {
-            base.OnResize(e);
-            GL.Viewport(0, 0, e.Width, e.Height);
-            projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(60f), (float)e.Width / e.Height, 0.1f, 100f);
+            GL.GetShader(shader, ShaderParameter.CompileStatus, out var status);
+            if (status == (int)All.False)
+                throw new Exception(GL.GetShaderInfoLog(shader));
+        }
+        private void CheckProgramLink(int program)
+        {
+            GL.GetProgram(program, GetProgramParameterName.LinkStatus, out var status);
+            if (status == (int)All.False)
+                throw new Exception(GL.GetProgramInfoLog(program));
+        }
+    }
+
+    public static class ShapeFactory
+    {
+        // Position(x,y,z), Normal(x,y,z), TexCoord(u,v)
+        public static float[] CreateCubeTextured()
+        {
+            float s = 0.5f;
+            return new float[]
+            {
+                // back face
+                -s,-s,-s,  0,0,-1, 0,0,
+                 s,-s,-s,  0,0,-1, 1,0,
+                 s, s,-s,  0,0,-1, 1,1,
+                 s, s,-s,  0,0,-1, 1,1,
+                -s, s,-s,  0,0,-1, 0,1,
+                -s,-s,-s,  0,0,-1, 0,0,
+
+                // front face
+                -s,-s, s,  0,0,1, 0,0,
+                 s,-s, s,  0,0,1, 1,0,
+                 s, s, s,  0,0,1, 1,1,
+                 s, s, s,  0,0,1, 1,1,
+                -s, s, s,  0,0,1, 0,1,
+                -s,-s, s,  0,0,1, 0,0,
+
+                // left face
+                -s,  s, s, -1,0,0, 1,0,
+                -s,  s,-s, -1,0,0, 1,1,
+                -s, -s,-s, -1,0,0, 0,1,
+                -s, -s,-s, -1,0,0, 0,1,
+                -s, -s, s, -1,0,0, 0,0,
+                -s,  s, s, -1,0,0, 1,0,
+
+                // right face
+                 s,  s, s, 1,0,0, 1,0,
+                 s,  s,-s, 1,0,0, 1,1,
+                 s, -s,-s, 1,0,0, 0,1,
+                 s, -s,-s, 1,0,0, 0,1,
+                 s, -s, s, 1,0,0, 0,0,
+                 s,  s, s, 1,0,0, 1,0,
+
+                // bottom face
+                -s, -s,-s, 0,-1,0, 0,1,
+                 s, -s,-s, 0,-1,0, 1,1,
+                 s, -s, s, 0,-1,0, 1,0,
+                 s, -s, s, 0,-1,0, 1,0,
+                -s, -s, s, 0,-1,0, 0,0,
+                -s, -s,-s, 0,-1,0, 0,1,
+
+                // top face
+                -s,  s,-s, 0,1,0, 0,1,
+                 s,  s,-s, 0,1,0, 1,1,
+                 s,  s, s, 0,1,0, 1,0,
+                 s,  s, s, 0,1,0, 1,0,
+                -s,  s, s, 0,1,0, 0,0,
+                -s,  s,-s, 0,1,0, 0,1,
+            };
         }
 
-        protected override void OnUnload()
+        public static float[] CreatePyramidTextured()
         {
-            base.OnUnload();
-            GL.DeleteBuffer(vbo);
-            GL.DeleteVertexArray(vao);
-            GL.DeleteProgram(shaderProgram);
+            return new float[]
+            {
+                // Base (two triangles)
+                -0.5f, 0f, -0.5f, 0, -1, 0, 0, 0,
+                 0.5f, 0f, -0.5f, 0, -1, 0, 1, 0,
+                 0.5f, 0f,  0.5f, 0, -1, 0, 1, 1,
+
+                 0.5f, 0f,  0.5f, 0, -1, 0, 1, 1,
+                -0.5f, 0f,  0.5f, 0, -1, 0, 0, 1,
+                -0.5f, 0f, -0.5f, 0, -1, 0, 0, 0,
+
+                // Sides
+                -0.5f, 0f, -0.5f, 0, 0.707f, -0.707f, 0, 0,
+                 0.5f, 0f, -0.5f, 0, 0.707f, -0.707f, 1, 0,
+                 0f,  0.8f,  0f, 0, 0.707f, -0.707f, 0.5f, 1,
+
+                 0.5f, 0f, -0.5f, 0.707f, 0, -0.707f, 0, 0,
+                 0.5f, 0f,  0.5f, 0.707f, 0, -0.707f, 1, 0,
+                 0f,  0.8f,  0f, 0.707f, 0, -0.707f, 0.5f, 1,
+
+                 0.5f, 0f,  0.5f, 0, 0.707f, 0.707f, 0, 0,
+                -0.5f, 0f,  0.5f, 0, 0.707f, 0.707f, 1, 0,
+                 0f,  0.8f,  0f, 0, 0.707f, 0.707f, 0.5f, 1,
+
+                -0.5f, 0f,  0.5f, -0.707f, 0, 0.707f, 0, 0,
+                -0.5f, 0f, -0.5f, -0.707f, 0, 0.707f, 1, 0,
+                 0f,  0.8f,  0f, -0.707f, 0, 0.707f, 0.5f, 1,
+            };
+        }
+
+        public static float[] CreatePlaneTextured(float size)
+        {
+            float s = size / 2f;
+            return new float[]
+            {
+                -s, 0, -s, 0, 1, 0, 0, 0,
+                 s, 0, -s, 0, 1, 0, 1, 0,
+                 s, 0,  s, 0, 1, 0, 1, 1,
+
+                 s, 0,  s, 0, 1, 0, 1, 1,
+                -s, 0,  s, 0, 1, 0, 0, 1,
+                -s, 0, -s, 0, 1, 0, 0, 0,
+            };
         }
     }
 }
