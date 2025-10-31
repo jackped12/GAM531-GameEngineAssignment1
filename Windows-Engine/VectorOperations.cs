@@ -4,12 +4,15 @@ namespace Windows_Engine
 {
     public static class VectorOperations
     {
-        public static Vector3 A { get; } = new(1, 2, 3);
-        public static Vector3 B { get; } = new(4, 5, 6);
+        public static Vector3 A => new Vector3(1, 2, 3);
+        public static Vector3 B => new Vector3(4, 5, 6);
 
-        public static Vector3 Add => A + B;
-        public static Vector3 Subtract => A - B;
-        public static float Dot => Vector3.Dot(A, B);
-        public static Vector3 Cross => Vector3.Cross(A, B);
+        public static Vector3 Add(Vector3 a, Vector3 b) => a + b;
+
+        public static Vector3 Subtract(Vector3 a, Vector3 b) => a - b;
+
+        public static float Dot(Vector3 a, Vector3 b) => Vector3.Dot(a, b);
+
+        public static Vector3 Cross(Vector3 a, Vector3 b) => Vector3.Cross(a, b);
     }
 }
